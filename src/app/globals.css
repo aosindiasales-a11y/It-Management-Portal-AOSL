@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Aviation Overseas Supply brand system — navy / royal blue / gold,
+       sampled from aviationoverseassupply.us rather than invented. */
+    --background: 0 0% 100%;
+    --foreground: 217 35% 14%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 217 35% 14%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 217 35% 14%;
+
+    --primary: 215 82% 47%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 213 30% 96%;
+    --secondary-foreground: 217 45% 20%;
+
+    --muted: 213 25% 96%;
+    --muted-foreground: 217 15% 45%;
+
+    --accent: 213 35% 94%;
+    --accent-foreground: 217 45% 18%;
+
+    --destructive: 0 78% 58%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 65% 38%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 43 89% 55%;
+    --warning-foreground: 26 40% 14%;
+
+    --border: 214 25% 89%;
+    --input: 214 25% 89%;
+    --ring: 215 82% 47%;
+
+    --sidebar-background: 217 55% 14%;
+    --sidebar-foreground: 213 30% 88%;
+    --sidebar-border: 217 40% 22%;
+    --sidebar-accent: 217 48% 24%;
+    --sidebar-accent-foreground: 0 0% 100%;
+
+    /* Raw brand tokens for bespoke surfaces (login hero, glass cards) that
+       need the color without semantic reinterpretation (unlike --warning,
+       which happens to also be gold-hued, but is free to be tuned separately). */
+    --brand-gold: 43 89% 55%;
+    --brand-gold-foreground: 26 40% 14%;
+    --brand-navy: 217 65% 12%;
+
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: 222 47% 7%;
+    --foreground: 213 25% 92%;
+
+    --card: 222 38% 10%;
+    --card-foreground: 213 25% 92%;
+
+    --popover: 222 38% 10%;
+    --popover-foreground: 213 25% 92%;
+
+    --primary: 215 85% 58%;
+    --primary-foreground: 222 47% 8%;
+
+    --secondary: 222 28% 15%;
+    --secondary-foreground: 213 25% 92%;
+
+    --muted: 222 28% 14%;
+    --muted-foreground: 217 15% 65%;
+
+    --accent: 222 28% 17%;
+    --accent-foreground: 213 25% 92%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 152 55% 42%;
+    --success-foreground: 0 0% 100%;
+
+    --warning: 43 85% 58%;
+    --warning-foreground: 26 40% 12%;
+
+    --border: 222 25% 18%;
+    --input: 222 25% 18%;
+    --ring: 215 85% 58%;
+
+    --sidebar-background: 222 55% 6%;
+    --sidebar-foreground: 213 20% 80%;
+    --sidebar-border: 222 35% 14%;
+    --sidebar-accent: 222 42% 16%;
+    --sidebar-accent-foreground: 0 0% 100%;
+
+    --brand-gold: 43 85% 58%;
+    --brand-gold-foreground: 26 40% 12%;
+    --brand-navy: 222 55% 6%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* Theme-aware glass card — uses --card/--border so it works in light and
+     dark mode without separate overrides. Used by the login card. */
+  .glass-panel {
+    @apply relative overflow-hidden border border-border/60 bg-card/75 shadow-glow backdrop-blur-2xl;
+  }
+
+  /* Deep navy → royal-blue gradient for the login hero and dark shell surfaces. */
+  .bg-brand-gradient {
+    background-image: linear-gradient(
+      160deg,
+      hsl(var(--brand-navy)) 0%,
+      hsl(215 70% 20%) 55%,
+      hsl(215 78% 32%) 100%
+    );
+  }
+
+  /* Self-contained hero background: radial highlights + dot grid layered
+     directly over the navy->royal-blue gradient (kept in one declaration —
+     stacking this with .bg-brand-gradient on the same element would silently
+     drop one of the two background-image values). */
+  .bg-hero-mesh {
+    background-image:
+      radial-gradient(circle at 18% 22%, hsl(var(--brand-gold) / 0.16) 0%, transparent 38%),
+      radial-gradient(circle at 82% 78%, hsl(0 0% 100% / 0.1) 0%, transparent 42%),
+      radial-gradient(hsl(0 0% 100% / 0.09) 1px, transparent 1px),
+      linear-gradient(160deg, hsl(var(--brand-navy)) 0%, hsl(215 70% 20%) 55%, hsl(215 78% 32%) 100%);
+    background-size: cover, cover, 28px 28px, cover;
+  }
+
+  /* Soft brand wash for the login page's left panel. */
+  .bg-login-page {
+    background-image: radial-gradient(circle at 25% -10%, hsl(var(--primary) / 0.08) 0%, transparent 45%);
+  }
+}

@@ -1,0 +1,514 @@
+// IT Manager Portal — Prisma Schema (v2)
+// Single-tenant, single-admin IT management portal for a 20-25 person company.
+//
+// Design principle: typed core fields per module (fast, simple queries) +
+// one flexible `customFields Json` column per module for admin-defined
+// fields, rather than a full EAV/meta-schema. Categories and Tags are
+// shared, admin-manageable models keyed by a `module` string discriminator
+// instead of per-module Prisma relations — this keeps the schema flat and
+// avoids a relation explosion across nine modules.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────────────────────────────────
+
+model Admin {
+  id           String    @id @default(cuid())
+  name         String
+  username     String    @unique
+  email        String    @unique
+  passwordHash String
+  role         String    @default("ADMIN")
+  avatarUrl    String?
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Persisted account lockout — complements the in-memory IP rate limiter
+  // (src/lib/auth/rate-limit.ts) with a per-account lock that survives
+  // server restarts and is visible in the audit trail.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
+  // Bumped whenever every other session should be invalidated ("log out of
+  // all devices"). Embedded in the session JWT at sign time and checked
+  // against this column in the DAL — mismatches are dead sessions.
+  sessionVersion Int @default(0)
+
+  // TOTP secret, AES-256-GCM encrypted at rest via src/lib/security/encryption.ts
+  // (same mechanism as the Credential Vault) — never stored in plaintext.
+  twoFactorEnabled       Boolean @default(false)
+  twoFactorSecret        String?
+  twoFactorSecretIv      String?
+  twoFactorSecretAuthTag String?
+  // JSON array of bcrypt-hashed one-time recovery codes; consumed codes are removed.
+  twoFactorRecoveryCodes String?
+
+  activityLogs        ActivityLog[]
+  passwordResetTokens PasswordResetToken[]
+  loginOtps           LoginOtp[]
+  sessions            Session[]
+
+  @@map("admins")
+}
+
+/// Single-use, expiring tokens for the Forgot Password flow. Only a hash of
+/// the token is stored — the raw token exists solely in the emailed link.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  adminId   String
+  admin     Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+  @@map("password_reset_tokens")
+}
+
+/// Single-use, expiring 6-digit codes emailed for the "email me a code"
+/// login verification option. Only a hash of the code is stored.
+model LoginOtp {
+  id        String    @id @default(cuid())
+  adminId   String
+  admin     Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([adminId])
+  @@map("login_otps")
+}
+
+/// One row per login — purely informational (Settings > Security > Active
+/// sessions, "log out of all devices"). Not consulted on every request;
+/// `Admin.sessionVersion` is the actual auth-invalidation mechanism.
+model Session {
+  id         String    @id @default(cuid())
+  adminId    String
+  admin      Admin     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  userAgent  String?
+  ip         String?
+  rememberMe Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([adminId])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SHARED ENGINE — custom fields, categories, tags, attachments, notes
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Admin-defined fields for a module. Values live in that module's
+/// `customFields` string column, keyed by `key`, and are stored as JSON.
+model CustomFieldDefinition {
+  id        String   @id @default(cuid())
+  module    String
+  key       String
+  label     String
+  fieldType String
+  options   String? // JSON string array of choices, for DROPDOWN / TAG
+  required  Boolean  @default(false)
+  hidden    Boolean  @default(false)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([module, key])
+  @@index([module])
+  @@map("custom_field_definitions")
+}
+
+/// Admin-defined categories, scoped per module by the `module` string
+/// (e.g. "credentials", "documents"). Referenced loosely by `categoryId`
+/// on each module's table — no hard FK, so categories can be renamed or
+/// removed without cascading schema changes.
+model Category {
+  id        String   @id @default(cuid())
+  module    String
+  name      String
+  color     String   @default("#6b7280")
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@unique([module, name])
+  @@index([module])
+  @@map("categories")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String   @default("#6b7280")
+  createdAt DateTime @default(now())
+
+  assignments TagAssignment[]
+
+  @@map("tags")
+}
+
+/// Generic tag ↔ record join. `module` + `recordId` identify the record
+/// (e.g. module="employees", recordId=<Employee.id>) without a formal FK,
+/// so one Tag model can be reused across every module.
+model TagAssignment {
+  id       String @id @default(cuid())
+  tagId    String
+  tag      Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+  module   String
+  recordId String
+
+  @@unique([tagId, module, recordId])
+  @@index([module, recordId])
+  @@map("tag_assignments")
+}
+
+/// Private notes attached to any record in any module — distinct from the
+/// standalone Notes module, which is itself a first-class record type.
+model RecordNote {
+  id        String   @id @default(cuid())
+  module    String
+  recordId  String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([module, recordId])
+  @@map("record_notes")
+}
+
+/// Files attached to any record in any module. Stored on local disk under
+/// the app's `storage/uploads` directory (see src/lib/storage.ts) and
+/// served through an authenticated route handler — never `public/`.
+model Attachment {
+  id         String   @id @default(cuid())
+  module     String
+  recordId   String
+  fileName   String
+  filePath   String
+  fileSize   Int?
+  mimeType   String?
+  uploadedAt DateTime @default(now())
+
+  @@index([module, recordId])
+  @@map("attachments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// EMPLOYEES
+// ─────────────────────────────────────────────────────────────────────────
+
+model Employee {
+  id           String    @id @default(cuid())
+  name         String
+  department   String
+  email        String    @unique
+  phone        String?
+  joiningDate  DateTime
+  status       String    @default("ACTIVE")
+  categoryId   String?
+  notes        String?
+  avatarUrl    String?
+  customFields String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  systems           System[]
+  allocationHistory AllocationHistory[]
+
+  @@map("employees")
+  @@index([department])
+  @@index([status])
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SYSTEMS (Assets)
+// ─────────────────────────────────────────────────────────────────────────
+
+model System {
+  id              String    @id @default(cuid())
+  assetId         String    @unique
+  name            String
+  serialNumber    String?   @unique
+  manufacturer    String?
+  model           String?
+  processor       String?
+  ram             String?
+  storage         String?
+  osVersion       String?
+  officeVersion   String?
+  purchaseDate    DateTime?
+  warrantyExpiry  DateTime?
+  status          String    @default("ACTIVE")
+  categoryId      String?
+  location        String?
+  notes           String?
+  customFields    String?
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  assignedEmployeeId String?
+  assignedEmployee   Employee? @relation(fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+
+  history           SystemHistoryEntry[]
+  allocationHistory AllocationHistory[]
+  softwareInstalls  SoftwareInstallation[]
+
+  @@map("systems")
+  @@index([status])
+  @@index([assignedEmployeeId])
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+model SystemHistoryEntry {
+  id          String   @id @default(cuid())
+  systemId    String
+  system      System   @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  eventType   String
+  description String?
+  eventDate   DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("system_history_entries")
+  @@index([systemId])
+}
+
+model AllocationHistory {
+  id           String    @id @default(cuid())
+  employeeId   String
+  employee     Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  systemId     String
+  system       System    @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  assignedAt   DateTime  @default(now())
+  unassignedAt DateTime?
+  notes        String?
+
+  @@map("allocation_history")
+  @@index([employeeId])
+  @@index([systemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CREDENTIAL VAULT
+// ─────────────────────────────────────────────────────────────────────────
+
+model Credential {
+  id                String    @id @default(cuid())
+  platform          String
+  url               String?
+  username          String?
+  encryptedPassword String
+  iv                String
+  authTag           String
+  categoryId        String?
+  notes             String?
+  customFields      String?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("credentials")
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// VPN DETAILS
+// ─────────────────────────────────────────────────────────────────────────
+
+model VpnCredential {
+  id                String    @id @default(cuid())
+  name              String
+  username          String?
+  encryptedPassword String
+  iv                String
+  authTag           String
+  mailId            String?
+  status            String    @default("Enabled") // "Enabled" | "Disabled"
+  active            Boolean   @default(true)
+  accountType       String    @default("Standard") // "Standard" | "Administrator"
+  categoryId        String?
+  customFields      String?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("vpn_credentials")
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SOFTWARE
+// ─────────────────────────────────────────────────────────────────────────
+
+model Software {
+  id           String    @id @default(cuid())
+  name         String
+  version      String?
+  licenseKey   String?
+  licenseType  String?
+  expiryDate   DateTime?
+  downloadLink String?
+  categoryId   String?
+  notes        String?
+  customFields String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  installations SoftwareInstallation[]
+
+  @@map("software")
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+model SoftwareInstallation {
+  id          String   @id @default(cuid())
+  softwareId  String
+  software    Software @relation(fields: [softwareId], references: [id], onDelete: Cascade)
+  systemId    String
+  system      System   @relation(fields: [systemId], references: [id], onDelete: Cascade)
+  installedOn DateTime @default(now())
+
+  @@map("software_installations")
+  @@unique([softwareId, systemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// NETWORK
+// ─────────────────────────────────────────────────────────────────────────
+
+model NetworkConfig {
+  id                String    @id @default(cuid())
+  label             String
+  wifiName          String?
+  encryptedPassword String?
+  iv                String?
+  authTag           String?
+  routerIp          String?
+  gateway           String?
+  dns               String?
+  isp               String?
+  bandwidth         String?
+  routerLoginUser   String?
+  routerLoginPass   String?
+  categoryId        String?
+  notes             String?
+  customFields      String?
+  archivedAt        DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("network_configs")
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// DOCUMENTS
+// ─────────────────────────────────────────────────────────────────────────
+
+model Document {
+  id           String    @id @default(cuid())
+  title        String
+  categoryId   String?
+  fileName     String
+  filePath     String
+  fileSize     Int?
+  mimeType     String?
+  notes        String?
+  customFields String?
+  archivedAt   DateTime?
+  uploadedAt   DateTime  @default(now())
+
+  @@map("documents")
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// NOTES
+// ─────────────────────────────────────────────────────────────────────────
+
+model Note {
+  id           String    @id @default(cuid())
+  title        String
+  content      String
+  categoryId   String?
+  pinned       Boolean   @default(false)
+  customFields String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("notes")
+  @@index([pinned])
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// TASKS
+// ─────────────────────────────────────────────────────────────────────────
+
+model Task {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  priority     String    @default("MEDIUM")
+  dueDate      DateTime?
+  reminderAt   DateTime?
+  categoryId   String?
+  completed    Boolean   @default(false)
+  completedAt  DateTime?
+  customFields String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("tasks")
+  @@index([completed])
+  @@index([dueDate])
+  @@index([categoryId])
+  @@index([archivedAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ACTIVITY LOG — powers the Dashboard feed and every record's Timeline tab
+// ─────────────────────────────────────────────────────────────────────────
+
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String // see ActivityAction in src/lib/activity.ts — "created" | "updated" | "archived" | "restored" | "deleted" | "duplicated" | "login" | "logout" | "password_revealed" | "exported" | "login_failed" | "account_locked" | "password_reset_requested" | "password_reset_completed" | "two_factor_enabled" | "two_factor_disabled" | "two_factor_failed" | "recovery_codes_regenerated" | "sessions_revoked"
+  entityType  String // module key, e.g. "employees", "systems"
+  entityId    String?
+  entityLabel String?
+  description String?
+  adminId     String?
+  admin       Admin?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@map("activity_logs")
+  @@index([createdAt])
+  @@index([entityType, entityId])
+}
