@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
 import type { Category, Employee, Tag } from "@prisma/client";
-
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableFacetFilter } from "@/components/data-table/data-table-facet-filter";
 import { RecordSheet } from "@/components/shared/record-sheet";
