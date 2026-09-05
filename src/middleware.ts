@@ -79,6 +79,13 @@ export async function middleware(request: NextRequest) {
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
   if (!authed && !isPublicPath) {
+    // An API caller (curl, fetch, a bypassed-UI request) wants a 401 it can
+    // check, not an HTML redirect to /login — the route's own
+    // getCurrentAdmin() check would return the same 401, but middleware
+    // runs first and would otherwise redirect before it's reached.
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);

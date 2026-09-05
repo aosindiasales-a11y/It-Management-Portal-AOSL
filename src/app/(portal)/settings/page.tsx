@@ -108,7 +108,7 @@ export default async function SettingsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Two-factor authentication</CardTitle>
-              <CardDescription>Require a one-time code from an authenticator app on top of your password.</CardDescription>
+              <CardDescription>Turned off for this single-admin portal — see below.</CardDescription>
             </CardHeader>
             <CardContent>
               <TwoFactorSettings initialStatus={twoFactorStatus} />

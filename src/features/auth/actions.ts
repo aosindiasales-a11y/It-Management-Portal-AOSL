@@ -8,7 +8,6 @@ import { prisma } from "@/lib/prisma";
 import {
   createSessionCookie,
   destroySessionCookie,
-  createPending2FACookie,
   getPending2FASession,
   destroyPending2FACookie,
   getSession,
@@ -167,11 +166,10 @@ export async function login(input: LoginInput): Promise<LoginActionResult> {
 
   await resetRateLimit(rateLimitKey);
 
-  if (admin.twoFactorEnabled) {
-    await createPending2FACookie({ adminId: admin.id, rememberMe });
-    return { success: true, requiresTwoFactor: true };
-  }
-
+  // This portal is single-admin with no second login step by design: go
+  // straight to a full session on a correct password, regardless of any
+  // stored twoFactorEnabled flag (see also beginTwoFactorEnrollment, which
+  // refuses new enrollment for the same reason).
   await startFullSession(admin, rememberMe, "password");
   return { success: true };
 }

@@ -8,29 +8,51 @@
  * Run with: npm run db:seed
  */
 import "dotenv/config";
-import bcrypt from "bcryptjs";
 import { encrypt } from "../src/lib/security/encryption";
 // Shares the app's adapter-aware client so that seeding follows the same
 // database selection as the running app: local SQLite by default, and the
 // remote Turso database when TURSO_DATABASE_URL/TURSO_AUTH_TOKEN are set.
 import { prisma } from "../src/lib/prisma";
 
+const BCRYPT_HASH_PATTERN = /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/;
+
 async function seedAdmin() {
   const username = process.env.ADMIN_USERNAME ?? "admin";
-  const email = (process.env.ADMIN_EMAIL ?? "admin@company.com").toLowerCase();
+  const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const name = process.env.ADMIN_NAME ?? "IT Administrator";
-  const password = process.env.ADMIN_PASSWORD ?? "ChangeMe@123";
+  const passwordHash = process.env.ADMIN_PASSWORD_HASH;
 
-  const passwordHash = await bcrypt.hash(password, 12);
+  // The plaintext password is never read here — only its bcrypt hash, so it
+  // never touches this process's env, argv, or logs. Generate one with
+  // `npm run admin:hash-password` (prompts for the password, prints only
+  // the hash) and put that in ADMIN_PASSWORD_HASH.
+  if (!email) {
+    throw new Error("ADMIN_EMAIL is required to seed the admin account.");
+  }
+  if (!passwordHash || !BCRYPT_HASH_PATTERN.test(passwordHash)) {
+    throw new Error(
+      "ADMIN_PASSWORD_HASH is required and must be a bcrypt hash (run `npm run admin:hash-password` to generate one).",
+    );
+  }
 
   // Upsert by email (the account identifier that matters here) — if this
   // admin already exists, re-running the seed updates their password
-  // instead of leaving it untouched or creating a duplicate account.
+  // instead of leaving it untouched or creating a duplicate account. Also
+  // forces two-factor off: this portal is single-admin with no second login
+  // step by design (see src/features/auth/actions.ts), so any 2FA state left
+  // over from earlier testing is cleared here too.
   const existing = await prisma.admin.findFirst({ where: { OR: [{ email }, { username }] } });
+  const twoFactorOff = {
+    twoFactorEnabled: false,
+    twoFactorSecret: null,
+    twoFactorSecretIv: null,
+    twoFactorSecretAuthTag: null,
+    twoFactorRecoveryCodes: null,
+  };
 
   const admin = existing
-    ? await prisma.admin.update({ where: { id: existing.id }, data: { username, email, name, passwordHash } })
-    : await prisma.admin.create({ data: { username, email, name, passwordHash } });
+    ? await prisma.admin.update({ where: { id: existing.id }, data: { username, email, name, passwordHash, ...twoFactorOff } })
+    : await prisma.admin.create({ data: { username, email, name, passwordHash, ...twoFactorOff } });
 
   console.log(`Admin ready: ${admin.username} (${admin.email})`);
   return admin;

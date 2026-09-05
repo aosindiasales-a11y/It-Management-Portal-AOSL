@@ -16,6 +16,7 @@
     "db:push:remote": "tsx prisma/push-remote.ts",
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
+    "admin:hash-password": "tsx scripts/hash-admin-password.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate"
   },

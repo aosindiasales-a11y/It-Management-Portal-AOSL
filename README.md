@@ -39,7 +39,13 @@ openssl rand -base64 32
 openssl rand -hex 32
 ```
 
-Paste those into `.env`. Also set `ADMIN_USERNAME`, `ADMIN_PASSWORD`, and `ADMIN_EMAIL` to real values — the defaults (`admin` / `ChangeMe@123`) are only for first-run.
+Paste those into `.env`. Also set `ADMIN_USERNAME` and `ADMIN_EMAIL` to real values, and generate `ADMIN_PASSWORD_HASH`:
+
+```bash
+npm run admin:hash-password   # prompts for the password on a masked line, prints only its bcrypt hash
+```
+
+Put that hash — never the plaintext password — in `ADMIN_PASSWORD_HASH`.
 
 ### Database
 
@@ -56,9 +62,7 @@ npm run db:seed      # creates the admin account + sample data (employees, syste
 npm run dev          # http://localhost:3000  →  redirects to /login
 ```
 
-Default credentials (change these via `.env`):
-- **Username:** `admin`
-- **Password:** `ChangeMe@123`
+Sign in with the `ADMIN_USERNAME`/`ADMIN_EMAIL` and the password you hashed into `ADMIN_PASSWORD_HASH` above. This is a single-admin portal with no OTP/second-factor step — a correct password goes straight to the dashboard.
 
 ---
 
@@ -235,8 +239,8 @@ For production use, back these up regularly alongside the database file.
 | `AUTH_SECRET` | Yes | — | Signs JWT session cookies; generate with `openssl rand -base64 32` |
 | `ENCRYPTION_KEY` | Yes | — | AES-256-GCM key for passwords; must be 64 hex chars (`openssl rand -hex 32`) |
 | `ADMIN_USERNAME` | No | `admin` | Seed-time only |
-| `ADMIN_PASSWORD` | No | `ChangeMe@123` | Seed-time only — change this |
-| `ADMIN_EMAIL` | No | `admin@company.com` | Seed-time only |
+| `ADMIN_PASSWORD_HASH` | Yes | — | Seed-time only. A bcrypt hash, never the plaintext — generate with `npm run admin:hash-password` |
+| `ADMIN_EMAIL` | Yes | — | Seed-time only |
 | `ADMIN_NAME` | No | `IT Administrator` | Seed-time only |
 | `SESSION_COOKIE_NAME` | No | `itmp_session` | Cookie name for the session JWT |
 | `NODE_ENV` | No | `development` | Set to `production` for `next build` / `next start` |

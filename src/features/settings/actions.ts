@@ -7,11 +7,9 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logActivity } from "@/lib/activity";
-import { changePasswordSchema, totpCodeSchema, type ChangePasswordInput } from "@/lib/validations/auth";
+import { changePasswordSchema, type ChangePasswordInput } from "@/lib/validations/auth";
 import { getSession, reissueSessionCookie } from "@/lib/auth/session";
-import { generateTotpEnrollment, verifyTotpCode } from "@/lib/auth/totp";
-import { generateRecoveryCodes, countRemainingRecoveryCodes } from "@/lib/auth/recovery-codes";
-import type { EncryptedPayload } from "@/lib/security/encryption";
+import { countRemainingRecoveryCodes } from "@/lib/auth/recovery-codes";
 import { sendMail } from "@/lib/mail/send-mail";
 import { buildSecurityAlertEmail } from "@/lib/mail/templates/security-alert";
 
@@ -133,61 +131,11 @@ export interface BeginEnrollmentResult {
 
 /** Generates a fresh TOTP secret and stores it (encrypted) unconfirmed — twoFactorEnabled stays false until `confirmTwoFactorEnrollment` verifies a code. */
 export async function beginTwoFactorEnrollment(): Promise<BeginEnrollmentResult> {
-  const admin = await requireAdmin();
-  if (admin.twoFactorEnabled) {
-    return { success: false, error: "Two-factor authentication is already enabled." };
-  }
-
-  const enrollment = await generateTotpEnrollment(admin.email);
-  await prisma.admin.update({
-    where: { id: admin.id },
-    data: {
-      twoFactorSecret: enrollment.encrypted.ciphertext,
-      twoFactorSecretIv: enrollment.encrypted.iv,
-      twoFactorSecretAuthTag: enrollment.encrypted.authTag,
-    },
-  });
-
-  return { success: true, qrDataUrl: enrollment.qrDataUrl, manualKey: enrollment.base32 };
-}
-
-export interface ConfirmEnrollmentResult {
-  success: boolean;
-  error?: string;
-  recoveryCodes?: string[];
-}
-
-export async function confirmTwoFactorEnrollment(input: { code: string }): Promise<ConfirmEnrollmentResult> {
-  const admin = await requireAdmin();
-  const parsed = totpCodeSchema.safeParse(input);
-  if (!parsed.success) {
-    return { success: false, error: parsed.error.issues[0]?.message ?? "Enter the 6-digit code." };
-  }
-
-  const record = await prisma.admin.findUniqueOrThrow({ where: { id: admin.id } });
-  if (!record.twoFactorSecret || !record.twoFactorSecretIv || !record.twoFactorSecretAuthTag) {
-    return { success: false, error: "Start enrollment again — no pending secret was found." };
-  }
-
-  const secret: EncryptedPayload = {
-    ciphertext: record.twoFactorSecret,
-    iv: record.twoFactorSecretIv,
-    authTag: record.twoFactorSecretAuthTag,
-  };
-  const valid = verifyTotpCode(secret, admin.email, parsed.data.code);
-  if (!valid) {
-    return { success: false, error: "That code isn't valid. Please try again." };
-  }
-
-  const { plaintextCodes, hashedJson } = await generateRecoveryCodes();
-  await prisma.admin.update({
-    where: { id: admin.id },
-    data: { twoFactorEnabled: true, twoFactorRecoveryCodes: hashedJson },
-  });
-
-  await logActivity({ action: "two_factor_enabled", module: "Admin", description: "Enabled two-factor authentication" });
-  revalidatePath("/settings");
-  return { success: true, recoveryCodes: plaintextCodes };
+  await requireAdmin();
+  // This portal is single-admin with no second login step by design (the
+  // login action ignores twoFactorEnabled entirely) — refuse new enrollment
+  // server-side too, not just by hiding the button in Settings.
+  return { success: false, error: "Two-factor authentication is turned off for this portal." };
 }
 
 export async function disableTwoFactor(input: { password: string }): Promise<SettingsActionResult> {
@@ -223,30 +171,6 @@ export async function disableTwoFactor(input: { password: string }): Promise<Set
   return { success: true };
 }
 
-export interface RegenerateRecoveryCodesResult {
-  success: boolean;
-  error?: string;
-  recoveryCodes?: string[];
-}
-
-export async function regenerateRecoveryCodes(input: { password: string }): Promise<RegenerateRecoveryCodesResult> {
-  const admin = await requireAdmin();
-  const record = await prisma.admin.findUniqueOrThrow({ where: { id: admin.id } });
-
-  if (!record.twoFactorEnabled) {
-    return { success: false, error: "Two-factor authentication isn't enabled." };
-  }
-  const matches = await bcrypt.compare(input.password, record.passwordHash);
-  if (!matches) {
-    return { success: false, error: "Incorrect password." };
-  }
-
-  const { plaintextCodes, hashedJson } = await generateRecoveryCodes();
-  await prisma.admin.update({ where: { id: admin.id }, data: { twoFactorRecoveryCodes: hashedJson } });
-
-  await logActivity({ action: "recovery_codes_regenerated", module: "Admin", description: "Regenerated two-factor recovery codes" });
-  return { success: true, recoveryCodes: plaintextCodes };
-}
 
 // ── Active sessions ─────────────────────────────────────────────────────────
 
