@@ -11,6 +11,7 @@ import { buildCustomFieldsSchema } from "@/lib/custom-fields/schema";
 import { setRecordTags, copyRecordTags, getRecordTagIds } from "@/features/tags/actions";
 import { documentMetaSchema, type DocumentMetaValues } from "@/features/documents/schema";
 import { serializeJsonValue } from "@/lib/json";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 const MODULE = "documents" as const;
 
@@ -50,6 +51,9 @@ export async function createDocument(formData: FormData): Promise<DocumentAction
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return { success: false, error: "Please choose a file to upload." };
+  }
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    return { success: false, error: `${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB` };
   }
 
   try {

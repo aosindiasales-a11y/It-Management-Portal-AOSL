@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { cn } from "@/lib/utils";
 import { deleteAttachment, uploadAttachment } from "@/features/attachments/actions";
 import type { ModuleKey } from "@/config/modules";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 function iconFor(mimeType: string | null) {
   if (mimeType?.startsWith("image/")) return FileImage;
@@ -40,18 +41,33 @@ export function AttachmentsPanel({ module, recordId, attachments, onChanged }: A
 
   async function upload(files: FileList | null) {
     if (!files || files.length === 0) return;
+
+    const selectedFiles = Array.from(files);
+    const validFiles = selectedFiles.filter((file) => {
+      if (file.size <= MAX_UPLOAD_SIZE_BYTES) return true;
+      toast.error(`${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB`);
+      return false;
+    });
+
+    if (validFiles.length === 0) return;
+
     setUploading(true);
+    let uploadedCount = 0;
     try {
-      for (const file of Array.from(files)) {
+      for (const file of validFiles) {
         const formData = new FormData();
         formData.set("file", file);
         const result = await uploadAttachment(module, recordId, formData);
         if (!result.success) {
           toast.error(result.error ?? `Couldn't upload ${file.name}`);
+        } else {
+          uploadedCount += 1;
         }
       }
-      toast.success("Uploaded");
-      onChanged?.();
+      if (uploadedCount > 0) {
+        toast.success(uploadedCount === 1 ? "Uploaded" : `${uploadedCount} files uploaded`);
+        onChanged?.();
+      }
     } finally {
       setUploading(false);
     }
@@ -82,7 +98,7 @@ export function AttachmentsPanel({ module, recordId, attachments, onChanged }: A
           <UploadCloud className="h-5 w-5 text-muted-foreground" />
         )}
         <p className="text-sm text-foreground">Drop files here, or click to browse</p>
-        <p className="text-xs text-muted-foreground">Images, PDFs, ZIPs, drivers — up to 25 MB each</p>
+        <p className="text-xs text-muted-foreground">Images, PDFs, ZIPs, drivers — up to {MAX_UPLOAD_SIZE_MB} MB each</p>
         <input
           ref={inputRef}
           type="file"

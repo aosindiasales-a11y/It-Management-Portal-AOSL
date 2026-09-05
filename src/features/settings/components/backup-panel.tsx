@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { runManualBackup, restoreFromUpload } from "@/features/backup/actions";
 import type { BackupFile } from "@/lib/backup";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -47,7 +48,11 @@ export function BackupPanel({ backups }: { backups: BackupFile[] }) {
 
   function handleFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) setPendingFile(file);
+    if (file && file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast.error(`${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB`);
+    } else if (file) {
+      setPendingFile(file);
+    }
     e.target.value = "";
   }
 
@@ -77,7 +82,7 @@ export function BackupPanel({ backups }: { backups: BackupFile[] }) {
         <CardHeader>
           <CardTitle>Backup &amp; restore</CardTitle>
           <CardDescription>
-            Everything lives in one SQLite file. Back it up regularly and keep a copy somewhere safe.
+            Everything lives in one SQLite file. Back it up regularly and keep a copy somewhere safe. Restore files can be up to {MAX_UPLOAD_SIZE_MB} MB.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2.5">

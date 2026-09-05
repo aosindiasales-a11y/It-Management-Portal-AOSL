@@ -96,7 +96,7 @@ Every module has: full CRUD (create / edit / duplicate / archive / restore / del
 - **Custom fields** — admin can create/rename/hide/reorder/delete fields of 11 types: Text, Textarea, Number, Date, Checkbox, Dropdown, Email, Phone, URL, Password, Tag list. Values stored in a `customFields Json` column; definitions in `CustomFieldDefinition`.
 - **Custom categories** — unlimited per module, colour-coded, managed in Settings.
 - **Tags** — shared across all modules; multi-select on every record; filter any table by tag.
-- **Attachments** — drag-and-drop or click-to-upload on every record; stored in `storage/uploads/` (never `public/`); served through an authenticated route handler. 25 MB per file; no file-type restriction.
+- **Attachments** — drag-and-drop or click-to-upload on every record; stored in `storage/uploads/` (never `public/`); served through an authenticated route handler. 20 MB per file; no file-type restriction.
 - **Private notes** — per-record notes distinct from the standalone Notes module.
 - **Activity timeline** — every create/edit/archive/restore/delete/duplicate action is logged and shown on the record's Timeline tab.
 - **Global search** — ⌘K command palette searches across all 8 modules + tags simultaneously.

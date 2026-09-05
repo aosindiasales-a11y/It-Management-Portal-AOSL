@@ -2,6 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      // Allow a 20 MB file plus multipart/form-data headers and metadata.
+      bodySizeLimit: "21mb",
+    },
+    // Middleware protects every portal route and must preserve the same body.
+    middlewareClientMaxBodySize: "21mb",
+  },
   eslint: {
     dirs: ["src"],
   },

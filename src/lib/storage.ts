@@ -4,6 +4,7 @@ import path from "path";
 import crypto from "crypto";
 
 import type { ModuleKey } from "@/config/modules";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 /**
  * Local-disk attachment storage. Files live under <project root>/storage/uploads
@@ -14,8 +15,6 @@ import type { ModuleKey } from "@/config/modules";
  */
 
 const UPLOAD_ROOT = path.join(process.cwd(), "storage", "uploads");
-
-const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB — generous for invoices/drivers, not for video dumps
 
 export class FileTooLargeError extends Error {}
 
@@ -31,8 +30,8 @@ export async function saveUploadedFile(
   recordId: string,
   file: File
 ): Promise<SavedFile> {
-  if (file.size > MAX_FILE_SIZE) {
-    throw new FileTooLargeError(`${file.name} is larger than 25 MB`);
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    throw new FileTooLargeError(`${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB`);
   }
 
   const dir = path.join(UPLOAD_ROOT, module, recordId);

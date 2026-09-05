@@ -6,6 +6,7 @@ import { writeFile } from "fs/promises";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logActivity } from "@/lib/activity";
 import { createBackup, getDatabaseFilePath, isValidSqliteHeader, listBackups } from "@/lib/backup";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 export async function getBackups() {
   await requireAdmin();
@@ -36,6 +37,9 @@ export async function restoreFromUpload(formData: FormData): Promise<RestoreResu
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return { success: false, error: "Choose a .db file to restore." };
+  }
+  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+    return { success: false, error: `${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB` };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());

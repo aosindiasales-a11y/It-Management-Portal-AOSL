@@ -19,6 +19,7 @@ import { documentMetaSchema, DOCUMENT_DEFAULTS, type DocumentMetaValues } from "
 import { normalizeCustomFields } from "@/lib/json";
 import { createDocument, updateDocument } from "@/features/documents/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields/types";
+import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 interface DocumentFormProps {
   document?: DocumentRecord | null;
@@ -55,6 +56,10 @@ export function DocumentForm({ document, initialTagIds = [], categories, allTags
   async function onSubmit(values: DocumentMetaValues) {
     if (!isEditing && !file) {
       toast.error("Choose a file to upload.");
+      return;
+    }
+    if (file && file.size > MAX_UPLOAD_SIZE_BYTES) {
+      toast.error(`${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB`);
       return;
     }
 
@@ -97,8 +102,21 @@ export function DocumentForm({ document, initialTagIds = [], categories, allTags
         <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border px-6 py-6 text-center transition-colors hover:bg-accent/40">
           {file ? <FileText className="h-5 w-5 text-muted-foreground" /> : <UploadCloud className="h-5 w-5 text-muted-foreground" />}
           <span className="text-sm text-foreground">{file ? file.name : isEditing ? document!.fileName : "Click to choose a file"}</span>
-          <span className="text-xs text-muted-foreground">PDF, images, ZIP, drivers — up to 25 MB</span>
-          <input type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <span className="text-xs text-muted-foreground">PDF, images, ZIP, drivers — up to {MAX_UPLOAD_SIZE_MB} MB</span>
+          <input
+            type="file"
+            className="hidden"
+            onChange={(event) => {
+              const selectedFile = event.target.files?.[0] ?? null;
+              if (selectedFile && selectedFile.size > MAX_UPLOAD_SIZE_BYTES) {
+                toast.error(`${selectedFile.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB`);
+                event.target.value = "";
+                setFile(null);
+                return;
+              }
+              setFile(selectedFile);
+            }}
+          />
         </label>
       </div>
 
