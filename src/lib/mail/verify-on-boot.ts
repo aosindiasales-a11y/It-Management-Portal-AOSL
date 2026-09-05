@@ -14,6 +14,11 @@ import { verifySmtpConnection, isSmtpConfigured } from "@/lib/mail/transporter";
 let checked = false;
 
 export function ensureSmtpVerifiedOnce(): void {
+  // The root layout also renders during `next build`'s static-generation
+  // pass, not just at real request time — skip there (see
+  // ensureAutoBackupScheduledOnce for the same guard and why it matters).
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+
   if (checked) return;
   checked = true;
 
