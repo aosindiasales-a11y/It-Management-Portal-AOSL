@@ -4,11 +4,19 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/dal";
-import { deleteUploadedFile, saveUploadedFile, FileTooLargeError } from "@/lib/storage";
+import {
+  deleteUploadedFile,
+  finalizeClientBlobUpload,
+  saveUploadedFile,
+  FileTooLargeError,
+  InvalidUploadedFileError,
+  type SavedFile,
+} from "@/lib/storage";
 import { logActivity } from "@/lib/activity";
 import { MODULES, type ModuleKey } from "@/config/modules";
 
 export async function listAttachments(module: ModuleKey, recordId: string) {
+  await requireAdmin();
   return prisma.attachment.findMany({
     where: { module, recordId },
     orderBy: { uploadedAt: "desc" },
@@ -27,12 +35,21 @@ export async function uploadAttachment(
 ): Promise<UploadAttachmentResult> {
   await requireAdmin();
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
+  const blobPath = formData.get("blobPath");
+  const blobFileName = formData.get("blobFileName");
+  const isClientBlobUpload = typeof blobPath === "string" && typeof blobFileName === "string";
+
+  if (!isClientBlobUpload && (!(file instanceof File) || file.size === 0)) {
     return { success: false, error: "No file selected." };
   }
 
+  let saved: SavedFile | undefined;
+  let attachmentCreated = false;
   try {
-    const saved = await saveUploadedFile(module, recordId, file);
+    saved = isClientBlobUpload
+      ? await finalizeClientBlobUpload(module, recordId, blobPath, blobFileName)
+      : await saveUploadedFile(module, recordId, file as File);
+
     await prisma.attachment.create({
       data: {
         module,
@@ -43,6 +60,7 @@ export async function uploadAttachment(
         mimeType: saved.mimeType,
       },
     });
+    attachmentCreated = true;
 
     await logActivity({
       action: "updated",
@@ -54,7 +72,13 @@ export async function uploadAttachment(
     revalidatePath(MODULES[module].href);
     return { success: true };
   } catch (err) {
+    if (isClientBlobUpload && saved && !attachmentCreated) {
+      await deleteUploadedFile(saved.filePath);
+    }
     if (err instanceof FileTooLargeError) {
+      return { success: false, error: err.message };
+    }
+    if (err instanceof InvalidUploadedFileError) {
       return { success: false, error: err.message };
     }
     return { success: false, error: "Upload failed. Please try again." };

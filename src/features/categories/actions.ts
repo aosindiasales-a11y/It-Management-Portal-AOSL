@@ -11,10 +11,12 @@ import { MODULE_KEYS, type ModuleKey } from "@/config/modules";
 const moduleSchema = z.enum(MODULE_KEYS);
 
 export async function getCategories(module: string) {
+  await requireAdmin();
   return prisma.category.findMany({ where: { module }, orderBy: { order: "asc" } });
 }
 
 export async function getAllCategories() {
+  await requireAdmin();
   return prisma.category.findMany({ orderBy: [{ module: "asc" }, { order: "asc" }] });
 }
 

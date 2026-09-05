@@ -1,22 +1,23 @@
 import "server-only";
 
+import { createHmac } from "crypto";
+
+import { prisma } from "@/lib/prisma";
+
 /**
- * In-memory login rate limiter. This is a single-instance, single-admin app
- * (no serverless/multi-instance deployment expected), so an in-memory map
- * is sufficient and avoids pulling in Redis for one login form. If this
- * app is ever deployed across multiple instances, swap this for a shared
- * store (e.g. Upstash Redis) behind the same `checkRateLimit` signature.
+ * Shared fixed-window rate limiter backed by the application database. The
+ * upsert is one SQLite statement, so concurrent Vercel instances cannot lose
+ * increments between a read and a write.
  */
-
-interface Bucket {
-  count: number;
-  firstAttemptAt: number;
-}
-
-const buckets = new Map<string, Bucket>();
 
 const WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const MAX_ATTEMPTS = 5;
+const CLEANUP_CHANCE = 1 / 64;
+
+interface StoredBucket {
+  attemptCount: number | bigint;
+  expiresAt: Date | string | number | bigint;
+}
 
 export interface RateLimitResult {
   allowed: boolean;
@@ -24,41 +25,95 @@ export interface RateLimitResult {
   retryAfterMs: number;
 }
 
+function hashKey(key: string): string {
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    throw new Error("AUTH_SECRET is required for authentication rate limiting.");
+  }
+
+  return createHmac("sha256", secret)
+    .update("it-manager-portal:rate-limit:v1\0")
+    .update(key)
+    .digest("hex");
+}
+
+function toTimestamp(value: StoredBucket["expiresAt"]): number {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "number") return value;
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    throw new Error("The rate-limit bucket returned an invalid expiration time.");
+  }
+  return timestamp;
+}
+
+async function cleanupExpiredBuckets(now: Date): Promise<void> {
+  if (Math.random() >= CLEANUP_CHANCE) return;
+
+  try {
+    await prisma.rateLimitBucket.deleteMany({
+      where: { expiresAt: { lte: now } },
+    });
+  } catch (error) {
+    // Cleanup is best-effort and must not make an otherwise valid limiter
+    // decision fail. The active key is reset by the upsert when it expires.
+    console.warn("[rate-limit] Could not clean up expired buckets", error);
+  }
+}
+
 /** Call once per login attempt, keyed by client IP (or IP+username). */
-export function checkRateLimit(key: string): RateLimitResult {
-  const now = Date.now();
-  const bucket = buckets.get(key);
+export async function checkRateLimit(key: string): Promise<RateLimitResult> {
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + WINDOW_MS);
+  const keyHash = hashKey(key);
 
-  if (!bucket || now - bucket.firstAttemptAt > WINDOW_MS) {
-    buckets.set(key, { count: 1, firstAttemptAt: now });
-    return { allowed: true, remainingAttempts: MAX_ATTEMPTS - 1, retryAfterMs: 0 };
+  const [bucket] = await prisma.$queryRaw<StoredBucket[]>`
+    INSERT INTO "rate_limit_buckets" (
+      "keyHash",
+      "attemptCount",
+      "windowStartedAt",
+      "expiresAt"
+    )
+    VALUES (${keyHash}, 1, ${now}, ${expiresAt})
+    ON CONFLICT ("keyHash") DO UPDATE SET
+      "attemptCount" = CASE
+        WHEN "expiresAt" <= ${now} THEN 1
+        ELSE "attemptCount" + 1
+      END,
+      "windowStartedAt" = CASE
+        WHEN "expiresAt" <= ${now} THEN ${now}
+        ELSE "windowStartedAt"
+      END,
+      "expiresAt" = CASE
+        WHEN "expiresAt" <= ${now} THEN ${expiresAt}
+        ELSE "expiresAt"
+      END
+    RETURNING "attemptCount", "expiresAt"
+  `;
+
+  if (!bucket) {
+    throw new Error("The rate-limit bucket could not be created.");
   }
 
-  if (bucket.count >= MAX_ATTEMPTS) {
-    return {
-      allowed: false,
-      remainingAttempts: 0,
-      retryAfterMs: WINDOW_MS - (now - bucket.firstAttemptAt),
-    };
-  }
+  await cleanupExpiredBuckets(now);
 
-  bucket.count += 1;
+  const attemptCount = Number(bucket.attemptCount);
+  const allowed = attemptCount <= MAX_ATTEMPTS;
+
   return {
-    allowed: true,
-    remainingAttempts: MAX_ATTEMPTS - bucket.count,
-    retryAfterMs: 0,
+    allowed,
+    remainingAttempts: allowed ? Math.max(0, MAX_ATTEMPTS - attemptCount) : 0,
+    retryAfterMs: allowed
+      ? 0
+      : Math.max(0, toTimestamp(bucket.expiresAt) - now.getTime()),
   };
 }
 
 /** Call after a successful login to clear the failure count for this key. */
-export function resetRateLimit(key: string): void {
-  buckets.delete(key);
+export async function resetRateLimit(key: string): Promise<void> {
+  await prisma.rateLimitBucket.deleteMany({
+    where: { keyHash: hashKey(key) },
+  });
 }
-
-// Periodically sweep expired buckets so the map doesn't grow unbounded.
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, bucket] of buckets) {
-    if (now - bucket.firstAttemptAt > WINDOW_MS) buckets.delete(key);
-  }
-}, WINDOW_MS).unref?.();

@@ -15,26 +15,40 @@ export const getCurrentAdmin = cache(async () => {
   const session = await getSession();
   if (!session) return null;
 
-  const admin = await prisma.admin.findUnique({
-    where: { id: session.adminId },
+  const persistedSession = await prisma.session.findUnique({
+    where: { id: session.sessionId },
     select: {
-      id: true,
-      name: true,
-      username: true,
-      email: true,
-      avatarUrl: true,
-      role: true,
-      lastLoginAt: true,
-      sessionVersion: true,
-      twoFactorEnabled: true,
+      adminId: true,
+      revokedAt: true,
+      admin: {
+        select: {
+          id: true,
+          name: true,
+          username: true,
+          email: true,
+          avatarUrl: true,
+          role: true,
+          lastLoginAt: true,
+          sessionVersion: true,
+          twoFactorEnabled: true,
+        },
+      },
     },
   });
 
-  // "Log out of all devices" bumps sessionVersion — any JWT signed before
-  // that (i.e. every other browser's cookie) stops resolving to an admin.
-  if (!admin || admin.sessionVersion !== session.sessionVersion) return null;
+  // Require the JWT to reference a live Session row owned by the same admin.
+  // This makes per-session revocation effective immediately at every DAL
+  // boundary instead of trusting a still-valid signed cookie until expiry.
+  if (
+    !persistedSession ||
+    persistedSession.revokedAt ||
+    persistedSession.adminId !== session.adminId ||
+    persistedSession.admin.sessionVersion !== session.sessionVersion
+  ) {
+    return null;
+  }
 
-  return admin;
+  return persistedSession.admin;
 });
 
 /** Use at the top of protected Server Components when middleware isn't enough on its own. */

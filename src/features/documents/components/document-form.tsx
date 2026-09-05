@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { upload as uploadToBlob } from "@vercel/blob/client";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
@@ -30,6 +31,20 @@ interface DocumentFormProps {
   onSuccess: () => void;
 }
 
+function blobFileExtension(fileName: string): string {
+  return fileName.match(/\.[a-zA-Z0-9]{1,16}$/)?.[0].toLowerCase() ?? "";
+}
+
+async function getUploadStorage(): Promise<"local" | "blob"> {
+  const response = await fetch("/api/files/upload", { cache: "no-store" });
+  if (!response.ok) throw new Error("Couldn't initialize the upload.");
+  const result = (await response.json()) as { storage?: unknown };
+  if (result.storage !== "local" && result.storage !== "blob") {
+    throw new Error("Couldn't initialize the upload.");
+  }
+  return result.storage;
+}
+
 export function DocumentForm({ document, initialTagIds = [], categories, allTags, customFieldDefs, onSuccess }: DocumentFormProps) {
   const isEditing = !!document;
   const [file, setFile] = React.useState<File | null>(null);
@@ -54,7 +69,7 @@ export function DocumentForm({ document, initialTagIds = [], categories, allTags
   } = useForm<DocumentMetaValues>({ resolver: zodResolver(documentMetaSchema), defaultValues });
 
   async function onSubmit(values: DocumentMetaValues) {
-    if (!isEditing && !file) {
+    if (!isEditing && (!file || file.size === 0)) {
       toast.error("Choose a file to upload.");
       return;
     }
@@ -69,10 +84,28 @@ export function DocumentForm({ document, initialTagIds = [], categories, allTags
     formData.set("notes", values.notes ?? "");
     formData.set("tagIds", JSON.stringify(values.tagIds));
     formData.set("customFields", JSON.stringify(values.customFields));
-    if (file) formData.set("file", file);
 
     setSubmitting(true);
     try {
+      if (file && file.size > 0) {
+        const storage = await getUploadStorage();
+        if (storage === "blob") {
+          const recordId = document?.id ?? crypto.randomUUID();
+          const pathname = `documents/${recordId}/${crypto.randomUUID()}${blobFileExtension(file.name)}`;
+          const blob = await uploadToBlob(pathname, file, {
+            access: "private",
+            contentType: file.type || "application/octet-stream",
+            handleUploadUrl: "/api/files/upload",
+            clientPayload: JSON.stringify({ module: "documents", recordId }),
+          });
+          formData.set("blobPath", blob.pathname);
+          formData.set("blobFileName", file.name);
+          if (!isEditing) formData.set("blobDocumentId", recordId);
+        } else {
+          formData.set("file", file);
+        }
+      }
+
       const result = isEditing ? await updateDocument(document.id, formData) : await createDocument(formData);
       if (!result.success) {
         toast.error(result.error ?? "Couldn't save this document.");
@@ -80,6 +113,8 @@ export function DocumentForm({ document, initialTagIds = [], categories, allTags
       }
       toast.success(isEditing ? "Document updated" : "Document uploaded");
       onSuccess();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't save this document.");
     } finally {
       setSubmitting(false);
     }

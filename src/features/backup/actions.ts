@@ -5,7 +5,14 @@ import { writeFile } from "fs/promises";
 
 import { requireAdmin } from "@/lib/auth/dal";
 import { logActivity } from "@/lib/activity";
-import { createBackup, getDatabaseFilePath, isValidSqliteHeader, listBackups } from "@/lib/backup";
+import {
+  createBackup,
+  getBackupMode,
+  getDatabaseFilePath,
+  isValidSqliteHeader,
+  listBackups,
+  type BackupStatus,
+} from "@/lib/backup";
 import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 export async function getBackups() {
@@ -13,8 +20,20 @@ export async function getBackups() {
   return listBackups();
 }
 
+export async function getBackupStatus(): Promise<BackupStatus> {
+  await requireAdmin();
+  const mode = getBackupMode();
+  return {
+    mode,
+    backups: mode === "local-sqlite" ? await listBackups() : [],
+  };
+}
+
 export async function runManualBackup() {
   await requireAdmin();
+  if (getBackupMode() !== "local-sqlite") {
+    throw new Error("Turso manages database backups in hosted deployments.");
+  }
   const backup = await createBackup("manual");
   await logActivity({ action: "created", module: "Admin", description: `Created a manual backup (${backup.name})` });
   revalidatePath("/settings");
@@ -34,6 +53,13 @@ export interface RestoreResult {
  */
 export async function restoreFromUpload(formData: FormData): Promise<RestoreResult> {
   await requireAdmin();
+  if (getBackupMode() !== "local-sqlite") {
+    return {
+      success: false,
+      error: "Raw SQLite restore is unavailable with Turso. Restore a Turso snapshot from the provider dashboard instead.",
+    };
+  }
+
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     return { success: false, error: "Choose a .db file to restore." };

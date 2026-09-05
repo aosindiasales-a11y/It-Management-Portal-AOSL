@@ -16,6 +16,7 @@ import { AuthCard } from "@/features/auth/components/auth-card";
 export function ForgotPasswordForm() {
   const [submitted, setSubmitted] = React.useState(false);
   const [devResetUrl, setDevResetUrl] = React.useState<string | null>(null);
+  const developmentResetUrl = process.env.NODE_ENV !== "production" ? devResetUrl : null;
 
   const {
     register,
@@ -39,14 +40,14 @@ export function ForgotPasswordForm() {
           <p className="text-sm text-muted-foreground">
             If an account matches that email, we&apos;ve sent a link to reset your password. It expires in 15 minutes.
           </p>
-          {devResetUrl && (
+          {developmentResetUrl && (
             <div className="space-y-1.5 rounded-lg border border-warning/30 bg-warning/10 p-3.5 text-left">
-              <p className="text-xs font-semibold uppercase tracking-wide text-warning">Email delivery unavailable</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-warning">Development reset link</p>
               <p className="text-xs text-muted-foreground">
-                We couldn&apos;t send the email right now, so here&apos;s the reset link directly:
+                Local email delivery is unavailable. Use this development-only link:
               </p>
-              <a href={devResetUrl} className="block break-all text-xs font-medium text-primary hover:underline">
-                {devResetUrl}
+              <a href={developmentResetUrl} className="block break-all text-xs font-medium text-primary hover:underline">
+                {developmentResetUrl}
               </a>
             </div>
           )}

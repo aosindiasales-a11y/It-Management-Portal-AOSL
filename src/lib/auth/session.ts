@@ -71,7 +71,9 @@ export async function verifySession(token: string): Promise<SessionPayload | nul
     if (
       typeof payload.adminId !== "string" ||
       typeof payload.username !== "string" ||
-      typeof payload.sessionVersion !== "number"
+      typeof payload.sessionVersion !== "number" ||
+      typeof payload.rememberMe !== "boolean" ||
+      typeof payload.sessionId !== "string"
     ) {
       return null;
     }

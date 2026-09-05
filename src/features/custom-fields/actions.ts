@@ -21,6 +21,7 @@ const createFieldSchema = z.object({
 });
 
 export async function getCustomFieldDefs(module: string): Promise<CustomFieldDef[]> {
+  await requireAdmin();
   const rows = await prisma.customFieldDefinition.findMany({
     where: { module },
     orderBy: { order: "asc" },

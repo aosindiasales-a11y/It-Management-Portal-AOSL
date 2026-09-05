@@ -8,11 +8,12 @@
  * Run with: npm run db:seed
  */
 import "dotenv/config";
-import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { encrypt } from "../src/lib/security/encryption";
-
-const prisma = new PrismaClient();
+// Shares the app's adapter-aware client so that seeding follows the same
+// database selection as the running app: local SQLite by default, and the
+// remote Turso database when TURSO_DATABASE_URL/TURSO_AUTH_TOKEN are set.
+import { prisma } from "../src/lib/prisma";
 
 async function seedAdmin() {
   const username = process.env.ADMIN_USERNAME ?? "admin";

@@ -15,6 +15,9 @@
 export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
 
+  const { isRemoteDatabaseConfigured } = await import("@/lib/database-config");
+  if (isRemoteDatabaseConfigured()) return;
+
   const ONE_DAY_MS = 1000 * 60 * 60 * 24;
 
   const { createBackup } = await import("@/lib/backup");

@@ -104,7 +104,7 @@ export async function login(input: LoginInput): Promise<LoginActionResult> {
 
   const ip = await getClientIp();
   const rateLimitKey = `${ip}:${identifier.toLowerCase()}`;
-  const rateLimit = checkRateLimit(rateLimitKey);
+  const rateLimit = await checkRateLimit(rateLimitKey);
 
   if (!rateLimit.allowed) {
     const minutes = Math.ceil(rateLimit.retryAfterMs / 60000);
@@ -165,7 +165,7 @@ export async function login(input: LoginInput): Promise<LoginActionResult> {
     return { success: false, error: "Invalid email/username or password." };
   }
 
-  resetRateLimit(rateLimitKey);
+  await resetRateLimit(rateLimitKey);
 
   if (admin.twoFactorEnabled) {
     await createPending2FACookie({ adminId: admin.id, rememberMe });
@@ -296,7 +296,7 @@ async function getBaseUrl(): Promise<string> {
 export interface ForgotPasswordResult {
   success: boolean;
   error?: string;
-  /** Only set when the email couldn't actually be sent (SMTP unconfigured or a delivery failure) — surfaces the link directly instead of it silently going nowhere. */
+  /** Development-only fallback when local email delivery is unavailable. Never returned in production. */
   devResetUrl?: string;
 }
 
@@ -308,7 +308,7 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<Forgot
   const email = parsed.data.email.toLowerCase();
 
   const ip = await getClientIp();
-  const rateLimit = checkRateLimit(`reset:${ip}:${email}`);
+  const rateLimit = await checkRateLimit(`reset:${ip}:${email}`);
   if (!rateLimit.allowed) {
     return { success: false, error: "Too many requests. Please try again later." };
   }
@@ -334,10 +334,14 @@ export async function forgotPassword(input: ForgotPasswordInput): Promise<Forgot
   const result = await sendMail({ to: admin.email, ...resetEmail, context: { adminId: admin.id, label: admin.name } });
 
   if (!result.success) {
-    // SMTP isn't configured or the send failed — surface the link directly
-    // rather than leaving the admin with no way to actually reset it.
-    console.log(`[mail fallback] Password reset link for ${admin.email}: ${resetUrl}`);
-    return { success: true, devResetUrl: resetUrl };
+    if (process.env.NODE_ENV !== "production") {
+      // Keep local development usable without SMTP. Production must never
+      // return or log a bearer reset token to an unauthenticated caller.
+      console.warn(`[mail fallback] Password reset link for ${admin.email}: ${resetUrl}`);
+      return { success: true, devResetUrl: resetUrl };
+    }
+
+    console.error(`[mail] Password reset email delivery failed for admin ${admin.id}`);
   }
 
   return { success: true };

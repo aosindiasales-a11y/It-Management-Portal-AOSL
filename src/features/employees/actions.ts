@@ -14,6 +14,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "employees" as const;
 
 export async function getEmployees(includeArchived = false) {
+  await requireAdmin();
   return prisma.employee.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { name: "asc" },
@@ -139,5 +140,6 @@ export async function duplicateEmployee(id: string) {
 }
 
 export async function getEmployeeTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

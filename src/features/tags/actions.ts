@@ -8,11 +8,13 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { MODULE_KEYS, type ModuleKey } from "@/config/modules";
 
 export async function getAllTags() {
+  await requireAdmin();
   return prisma.tag.findMany({ orderBy: { name: "asc" } });
 }
 
 /** Tag ids currently assigned to one record. */
 export async function getRecordTagIds(module: ModuleKey, recordId: string): Promise<string[]> {
+  await requireAdmin();
   const rows = await prisma.tagAssignment.findMany({
     where: { module, recordId },
     select: { tagId: true },
@@ -22,6 +24,7 @@ export async function getRecordTagIds(module: ModuleKey, recordId: string): Prom
 
 /** Tag assignments for every record in a module, grouped by recordId — for list pages. */
 export async function getModuleTagMap(module: ModuleKey): Promise<Record<string, string[]>> {
+  await requireAdmin();
   const rows = await prisma.tagAssignment.findMany({
     where: { module },
     include: { tag: true },
@@ -86,6 +89,7 @@ export async function setRecordTags(input: z.infer<typeof setRecordTagsSchema>) 
 
 /** Copies tag assignments from one record to another — used by "Duplicate". */
 export async function copyRecordTags(module: ModuleKey, fromRecordId: string, toRecordId: string) {
+  await requireAdmin();
   const tagIds = await getRecordTagIds(module, fromRecordId);
   if (tagIds.length === 0) return;
   await prisma.tagAssignment.createMany({

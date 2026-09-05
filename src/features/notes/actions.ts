@@ -14,6 +14,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "notes" as const;
 
 export async function getNotes(includeArchived = false) {
+  await requireAdmin();
   return prisma.note.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
@@ -113,5 +114,6 @@ export async function duplicateNote(id: string) {
 }
 
 export async function getNoteTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

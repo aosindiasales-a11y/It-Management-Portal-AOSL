@@ -15,6 +15,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "network" as const;
 
 export async function getNetworkConfigs(includeArchived = false) {
+  await requireAdmin();
   return prisma.networkConfig.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { label: "asc" },
@@ -155,5 +156,6 @@ export async function revealWifiPassword(id: string): Promise<string> {
 }
 
 export async function getNetworkTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

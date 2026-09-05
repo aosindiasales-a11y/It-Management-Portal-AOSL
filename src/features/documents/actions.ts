@@ -5,7 +5,15 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logActivity } from "@/lib/activity";
-import { copyStoredFile, deleteUploadedFile, saveUploadedFile, FileTooLargeError } from "@/lib/storage";
+import {
+  copyStoredFile,
+  deleteUploadedFile,
+  finalizeClientBlobUpload,
+  saveUploadedFile,
+  FileTooLargeError,
+  InvalidUploadedFileError,
+  type SavedFile,
+} from "@/lib/storage";
 import { getCustomFieldDefs } from "@/features/custom-fields/actions";
 import { buildCustomFieldsSchema } from "@/lib/custom-fields/schema";
 import { setRecordTags, copyRecordTags, getRecordTagIds } from "@/features/tags/actions";
@@ -16,6 +24,7 @@ import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 const MODULE = "documents" as const;
 
 export async function getDocuments(includeArchived = false) {
+  await requireAdmin();
   return prisma.document.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { uploadedAt: "desc" },
@@ -49,21 +58,57 @@ export async function createDocument(formData: FormData): Promise<DocumentAction
   const customFields = await validateCustomFields(parsed.customFields);
 
   const file = formData.get("file");
-  if (!(file instanceof File) || file.size === 0) {
+  const blobPath = formData.get("blobPath");
+  const blobFileName = formData.get("blobFileName");
+  const blobDocumentId = formData.get("blobDocumentId");
+  const isClientBlobUpload =
+    typeof blobPath === "string" &&
+    typeof blobFileName === "string" &&
+    typeof blobDocumentId === "string";
+
+  if (!isClientBlobUpload && (!(file instanceof File) || file.size === 0)) {
     return { success: false, error: "Please choose a file to upload." };
   }
-  if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+  if (file instanceof File && file.size > MAX_UPLOAD_SIZE_BYTES) {
     return { success: false, error: `${file.name} is larger than ${MAX_UPLOAD_SIZE_MB} MB` };
   }
 
+  let savedForCleanup: SavedFile | undefined;
+  let documentCreated = false;
   try {
+    if (isClientBlobUpload) {
+      const saved = await finalizeClientBlobUpload(MODULE, blobDocumentId, blobPath, blobFileName);
+      savedForCleanup = saved;
+      const document = await prisma.document.create({
+        data: {
+          id: blobDocumentId,
+          title: parsed.title,
+          categoryId: parsed.categoryId || null,
+          notes: parsed.notes || null,
+          customFields: serializeJsonValue(customFields),
+          fileName: saved.fileName,
+          filePath: saved.filePath,
+          fileSize: saved.fileSize,
+          mimeType: saved.mimeType,
+        },
+      });
+      documentCreated = true;
+
+      await setRecordTags({ module: MODULE, recordId: document.id, tagIds: parsed.tagIds });
+      await logActivity({ action: "created", module: MODULE, recordId: document.id, label: document.title, description: `Uploaded document ${document.title}` });
+
+      revalidatePath("/documents");
+      revalidatePath("/dashboard");
+      return { success: true, id: document.id };
+    }
+
     // Documents are keyed by their own id, so we create the row first with a
     // placeholder path, then move the file into its final id-scoped folder.
     const draftDoc = await prisma.document.create({
-      data: { title: parsed.title, categoryId: parsed.categoryId || null, notes: parsed.notes || null, customFields: serializeJsonValue(customFields), fileName: file.name, filePath: "" },
+      data: { title: parsed.title, categoryId: parsed.categoryId || null, notes: parsed.notes || null, customFields: serializeJsonValue(customFields), fileName: (file as File).name, filePath: "" },
     });
 
-    const saved = await saveUploadedFile(MODULE, draftDoc.id, file);
+    const saved = await saveUploadedFile(MODULE, draftDoc.id, file as File);
     const document = await prisma.document.update({
       where: { id: draftDoc.id },
       data: { fileName: saved.fileName, filePath: saved.filePath, fileSize: saved.fileSize, mimeType: saved.mimeType },
@@ -76,7 +121,11 @@ export async function createDocument(formData: FormData): Promise<DocumentAction
     revalidatePath("/dashboard");
     return { success: true, id: document.id };
   } catch (err) {
+    if (isClientBlobUpload && savedForCleanup && !documentCreated) {
+      await deleteUploadedFile(savedForCleanup.filePath);
+    }
     if (err instanceof FileTooLargeError) return { success: false, error: err.message };
+    if (err instanceof InvalidUploadedFileError) return { success: false, error: err.message };
     return { success: false, error: "Upload failed. Please try again." };
   }
 }
@@ -87,30 +136,52 @@ export async function updateDocument(id: string, formData: FormData): Promise<Do
   const customFields = await validateCustomFields(parsed.customFields);
 
   const file = formData.get("file");
+  const blobPath = formData.get("blobPath");
+  const blobFileName = formData.get("blobFileName");
+  const isClientBlobUpload = typeof blobPath === "string" && typeof blobFileName === "string";
   let fileFields: Partial<{ fileName: string; filePath: string; fileSize: number; mimeType: string }> = {};
+  let oldFilePath: string | undefined;
+  let newSavedFile: SavedFile | undefined;
 
-  if (file instanceof File && file.size > 0) {
+  if (isClientBlobUpload || (file instanceof File && file.size > 0)) {
     try {
       const existing = await prisma.document.findUniqueOrThrow({ where: { id } });
-      const saved = await saveUploadedFile(MODULE, id, file);
-      await deleteUploadedFile(existing.filePath);
+      const saved = isClientBlobUpload
+        ? await finalizeClientBlobUpload(MODULE, id, blobPath, blobFileName)
+        : await saveUploadedFile(MODULE, id, file as File);
+      oldFilePath = existing.filePath;
+      newSavedFile = saved;
       fileFields = { fileName: saved.fileName, filePath: saved.filePath, fileSize: saved.fileSize, mimeType: saved.mimeType };
     } catch (err) {
       if (err instanceof FileTooLargeError) return { success: false, error: err.message };
+      if (err instanceof InvalidUploadedFileError) return { success: false, error: err.message };
       return { success: false, error: "Replacing the file failed. Please try again." };
     }
   }
 
-  const document = await prisma.document.update({
-    where: { id },
-    data: { title: parsed.title, categoryId: parsed.categoryId || null, notes: parsed.notes || null, customFields: serializeJsonValue(customFields), ...fileFields },
-  });
+  let documentUpdated = false;
+  try {
+    const document = await prisma.document.update({
+      where: { id },
+      data: { title: parsed.title, categoryId: parsed.categoryId || null, notes: parsed.notes || null, customFields: serializeJsonValue(customFields), ...fileFields },
+    });
+    documentUpdated = true;
 
-  await setRecordTags({ module: MODULE, recordId: id, tagIds: parsed.tagIds });
-  await logActivity({ action: "updated", module: MODULE, recordId: id, label: document.title, description: `Updated document ${document.title}` });
+    if (oldFilePath && oldFilePath !== newSavedFile?.filePath) {
+      await deleteUploadedFile(oldFilePath);
+    }
 
-  revalidatePath("/documents");
-  return { success: true, id: document.id };
+    await setRecordTags({ module: MODULE, recordId: id, tagIds: parsed.tagIds });
+    await logActivity({ action: "updated", module: MODULE, recordId: id, label: document.title, description: `Updated document ${document.title}` });
+
+    revalidatePath("/documents");
+    return { success: true, id: document.id };
+  } catch {
+    if (newSavedFile && !documentUpdated) {
+      await deleteUploadedFile(newSavedFile.filePath);
+    }
+    return { success: false, error: "Updating the document failed. Please try again." };
+  }
 }
 
 export async function archiveDocument(id: string) {
@@ -164,5 +235,6 @@ export async function duplicateDocument(id: string) {
 }
 
 export async function getDocumentTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

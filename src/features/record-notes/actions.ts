@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { MODULE_KEYS, MODULES, type ModuleKey } from "@/config/modules";
 
 export async function listRecordNotes(module: ModuleKey, recordId: string) {
+  await requireAdmin();
   return prisma.recordNote.findMany({
     where: { module, recordId },
     orderBy: { createdAt: "desc" },

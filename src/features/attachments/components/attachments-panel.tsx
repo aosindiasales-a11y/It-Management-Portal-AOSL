@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { upload as uploadToBlob } from "@vercel/blob/client";
 import { toast } from "sonner";
 import { Download, File, FileImage, FileText, Loader2, Trash2, UploadCloud } from "lucide-react";
 import type { Attachment } from "@prisma/client";
@@ -33,6 +34,20 @@ interface AttachmentsPanelProps {
   onChanged?: () => void;
 }
 
+function blobFileExtension(fileName: string): string {
+  return fileName.match(/\.[a-zA-Z0-9]{1,16}$/)?.[0].toLowerCase() ?? "";
+}
+
+async function getUploadStorage(): Promise<"local" | "blob"> {
+  const response = await fetch("/api/files/upload", { cache: "no-store" });
+  if (!response.ok) throw new Error("Couldn't initialize the upload.");
+  const result = (await response.json()) as { storage?: unknown };
+  if (result.storage !== "local" && result.storage !== "blob") {
+    throw new Error("Couldn't initialize the upload.");
+  }
+  return result.storage;
+}
+
 export function AttachmentsPanel({ module, recordId, attachments, onChanged }: AttachmentsPanelProps) {
   const [uploading, setUploading] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
@@ -54,22 +69,43 @@ export function AttachmentsPanel({ module, recordId, attachments, onChanged }: A
     setUploading(true);
     let uploadedCount = 0;
     try {
+      const storage = await getUploadStorage();
       for (const file of validFiles) {
-        const formData = new FormData();
-        formData.set("file", file);
-        const result = await uploadAttachment(module, recordId, formData);
-        if (!result.success) {
-          toast.error(result.error ?? `Couldn't upload ${file.name}`);
-        } else {
-          uploadedCount += 1;
+        try {
+          const formData = new FormData();
+          if (storage === "blob") {
+            const pathname = `${module}/${recordId}/${crypto.randomUUID()}${blobFileExtension(file.name)}`;
+            const blob = await uploadToBlob(pathname, file, {
+              access: "private",
+              contentType: file.type || "application/octet-stream",
+              handleUploadUrl: "/api/files/upload",
+              clientPayload: JSON.stringify({ module, recordId }),
+            });
+            formData.set("blobPath", blob.pathname);
+            formData.set("blobFileName", file.name);
+          } else {
+            formData.set("file", file);
+          }
+
+          const result = await uploadAttachment(module, recordId, formData);
+          if (!result.success) {
+            toast.error(result.error ?? `Couldn't upload ${file.name}`);
+          } else {
+            uploadedCount += 1;
+          }
+        } catch (error) {
+          toast.error(error instanceof Error ? error.message : `Couldn't upload ${file.name}`);
         }
       }
       if (uploadedCount > 0) {
         toast.success(uploadedCount === 1 ? "Uploaded" : `${uploadedCount} files uploaded`);
         onChanged?.();
       }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Couldn't initialize the upload.");
     } finally {
       setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
     }
   }
 

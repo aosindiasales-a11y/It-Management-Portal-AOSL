@@ -14,6 +14,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "tasks" as const;
 
 export async function getTasks(includeArchived = false) {
+  await requireAdmin();
   return prisma.task.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: [{ completed: "asc" }, { dueDate: "asc" }],
@@ -141,5 +142,6 @@ export async function duplicateTask(id: string) {
 }
 
 export async function getTaskTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

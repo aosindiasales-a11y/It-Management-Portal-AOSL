@@ -9,7 +9,8 @@
 // avoids a relation explosion across nine modules.
 
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
 }
 
 datasource db {
@@ -33,9 +34,9 @@ model Admin {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  // Persisted account lockout — complements the in-memory IP rate limiter
-  // (src/lib/auth/rate-limit.ts) with a per-account lock that survives
-  // server restarts and is visible in the audit trail.
+  // Persisted account lockout — complements the shared request rate limiter
+  // (src/lib/auth/rate-limit.ts) with a per-account lock that is visible in
+  // the audit trail.
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
@@ -107,6 +108,19 @@ model Session {
 
   @@index([adminId])
   @@map("sessions")
+}
+
+/// Shared fixed-window request limiter used by authentication flows. Keys are
+/// HMAC digests, so client IP addresses and account identifiers are never
+/// persisted in recoverable form.
+model RateLimitBucket {
+  keyHash         String   @id
+  attemptCount    Int      @default(0)
+  windowStartedAt DateTime
+  expiresAt       DateTime
+
+  @@index([expiresAt])
+  @@map("rate_limit_buckets")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -230,11 +244,11 @@ model Employee {
   systems           System[]
   allocationHistory AllocationHistory[]
 
-  @@map("employees")
   @@index([department])
   @@index([status])
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("employees")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -242,27 +256,27 @@ model Employee {
 // ─────────────────────────────────────────────────────────────────────────
 
 model System {
-  id              String    @id @default(cuid())
-  assetId         String    @unique
-  name            String
-  serialNumber    String?   @unique
-  manufacturer    String?
-  model           String?
-  processor       String?
-  ram             String?
-  storage         String?
-  osVersion       String?
-  officeVersion   String?
-  purchaseDate    DateTime?
-  warrantyExpiry  DateTime?
-  status          String    @default("ACTIVE")
-  categoryId      String?
-  location        String?
-  notes           String?
-  customFields    String?
-  archivedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id             String    @id @default(cuid())
+  assetId        String    @unique
+  name           String
+  serialNumber   String?   @unique
+  manufacturer   String?
+  model          String?
+  processor      String?
+  ram            String?
+  storage        String?
+  osVersion      String?
+  officeVersion  String?
+  purchaseDate   DateTime?
+  warrantyExpiry DateTime?
+  status         String    @default("ACTIVE")
+  categoryId     String?
+  location       String?
+  notes          String?
+  customFields   String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   assignedEmployeeId String?
   assignedEmployee   Employee? @relation(fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
@@ -271,11 +285,11 @@ model System {
   allocationHistory AllocationHistory[]
   softwareInstalls  SoftwareInstallation[]
 
-  @@map("systems")
   @@index([status])
   @@index([assignedEmployeeId])
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("systems")
 }
 
 model SystemHistoryEntry {
@@ -287,8 +301,8 @@ model SystemHistoryEntry {
   eventDate   DateTime @default(now())
   createdAt   DateTime @default(now())
 
-  @@map("system_history_entries")
   @@index([systemId])
+  @@map("system_history_entries")
 }
 
 model AllocationHistory {
@@ -301,9 +315,9 @@ model AllocationHistory {
   unassignedAt DateTime?
   notes        String?
 
-  @@map("allocation_history")
   @@index([employeeId])
   @@index([systemId])
+  @@map("allocation_history")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -325,9 +339,9 @@ model Credential {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  @@map("credentials")
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("credentials")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -351,9 +365,9 @@ model VpnCredential {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  @@map("vpn_credentials")
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("vpn_credentials")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -377,9 +391,9 @@ model Software {
 
   installations SoftwareInstallation[]
 
-  @@map("software")
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("software")
 }
 
 model SoftwareInstallation {
@@ -390,8 +404,8 @@ model SoftwareInstallation {
   system      System   @relation(fields: [systemId], references: [id], onDelete: Cascade)
   installedOn DateTime @default(now())
 
-  @@map("software_installations")
   @@unique([softwareId, systemId])
+  @@map("software_installations")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -419,9 +433,9 @@ model NetworkConfig {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  @@map("network_configs")
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("network_configs")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -441,9 +455,9 @@ model Document {
   archivedAt   DateTime?
   uploadedAt   DateTime  @default(now())
 
-  @@map("documents")
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("documents")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -461,10 +475,10 @@ model Note {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@map("notes")
   @@index([pinned])
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("notes")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -486,11 +500,11 @@ model Task {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  @@map("tasks")
   @@index([completed])
   @@index([dueDate])
   @@index([categoryId])
   @@index([archivedAt])
+  @@map("tasks")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -508,7 +522,7 @@ model ActivityLog {
   admin       Admin?   @relation(fields: [adminId], references: [id], onDelete: SetNull)
   createdAt   DateTime @default(now())
 
-  @@map("activity_logs")
   @@index([createdAt])
   @@index([entityType, entityId])
+  @@map("activity_logs")
 }

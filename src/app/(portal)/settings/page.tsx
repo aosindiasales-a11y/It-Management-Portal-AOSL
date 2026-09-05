@@ -6,7 +6,7 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { getAllCategories } from "@/features/categories/actions";
 import { getAllTags } from "@/features/tags/actions";
 import { getCustomFieldDefs } from "@/features/custom-fields/actions";
-import { getBackups } from "@/features/backup/actions";
+import { getBackupStatus } from "@/features/backup/actions";
 import { MODULE_KEYS, type ModuleKey } from "@/config/modules";
 import { ProfileForm } from "@/features/settings/components/profile-form";
 import { ChangePasswordForm } from "@/features/settings/components/change-password-form";
@@ -23,10 +23,10 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage() {
   const admin = await requireAdmin();
 
-  const [allCategories, allTags, backups, twoFactorStatus, activeSessions, ...fieldsPerModule] = await Promise.all([
+  const [allCategories, allTags, backupStatus, twoFactorStatus, activeSessions, ...fieldsPerModule] = await Promise.all([
     getAllCategories(),
     getAllTags(),
-    getBackups(),
+    getBackupStatus(),
     getTwoFactorStatus(),
     getActiveSessions(),
     ...MODULE_KEYS.map((m) => getCustomFieldDefs(m)),
@@ -89,7 +89,7 @@ export default async function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="backup">
-          <BackupPanel backups={backups} />
+          <BackupPanel status={backupStatus} />
         </TabsContent>
 
         <TabsContent value="security" className="space-y-6">

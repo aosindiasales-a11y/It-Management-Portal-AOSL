@@ -1,82 +1,64 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
-import { getSession } from "@/lib/auth/session";
+import { getCurrentAdmin } from "@/lib/auth/dal";
 
-/** Full JSON export of every module's data — human-inspectable, for records/compliance, not a restore mechanism (use the SQLite download for that). */
+/**
+ * Streams a full JSON export of portal records. Streaming keeps larger exports
+ * out of Vercel's buffered Function response path and avoids holding every
+ * table in memory at once.
+ */
 export async function GET() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const admin = await getCurrentAdmin();
+  if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const [
-    employees,
-    systems,
-    systemHistory,
-    allocationHistory,
-    credentials,
-    software,
-    softwareInstallations,
-    network,
-    documents,
-    notes,
-    tasks,
-    categories,
-    tags,
-    tagAssignments,
-    customFieldDefinitions,
-    recordNotes,
-    attachments,
-    activityLogs,
-  ] = await Promise.all([
-    prisma.employee.findMany(),
-    prisma.system.findMany(),
-    prisma.systemHistoryEntry.findMany(),
-    prisma.allocationHistory.findMany(),
-    prisma.credential.findMany(),
-    prisma.software.findMany(),
-    prisma.softwareInstallation.findMany(),
-    prisma.networkConfig.findMany(),
-    prisma.document.findMany(),
-    prisma.note.findMany(),
-    prisma.task.findMany(),
-    prisma.category.findMany(),
-    prisma.tag.findMany(),
-    prisma.tagAssignment.findMany(),
-    prisma.customFieldDefinition.findMany(),
-    prisma.recordNote.findMany(),
-    prisma.attachment.findMany(),
-    prisma.activityLog.findMany(),
-  ]);
+  const sections: Array<[string, () => Promise<unknown>]> = [
+    ["employees", () => prisma.employee.findMany()],
+    ["systems", () => prisma.system.findMany()],
+    ["systemHistory", () => prisma.systemHistoryEntry.findMany()],
+    ["allocationHistory", () => prisma.allocationHistory.findMany()],
+    ["credentials", () => prisma.credential.findMany()],
+    ["software", () => prisma.software.findMany()],
+    ["softwareInstallations", () => prisma.softwareInstallation.findMany()],
+    ["network", () => prisma.networkConfig.findMany()],
+    ["documents", () => prisma.document.findMany()],
+    ["notes", () => prisma.note.findMany()],
+    ["tasks", () => prisma.task.findMany()],
+    ["categories", () => prisma.category.findMany()],
+    ["tags", () => prisma.tag.findMany()],
+    ["tagAssignments", () => prisma.tagAssignment.findMany()],
+    ["customFieldDefinitions", () => prisma.customFieldDefinition.findMany()],
+    ["recordNotes", () => prisma.recordNote.findMany()],
+    ["attachments", () => prisma.attachment.findMany()],
+    ["activityLogs", () => prisma.activityLog.findMany()],
+  ];
 
-  const payload = {
-    exportedAt: new Date().toISOString(),
-    version: 2,
-    data: {
-      employees,
-      systems,
-      systemHistory,
-      allocationHistory,
-      credentials,
-      software,
-      softwareInstallations,
-      network,
-      documents,
-      notes,
-      tasks,
-      categories,
-      tags,
-      tagAssignments,
-      customFieldDefinitions,
-      recordNotes,
-      attachments,
-      activityLogs,
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const write = (value: string) => controller.enqueue(encoder.encode(value));
+
+      try {
+        write(`{\n  "exportedAt": ${JSON.stringify(new Date().toISOString())},\n  "version": 3,\n  "data": {`);
+
+        for (const [index, [name, load]] of sections.entries()) {
+          const records = await load();
+          write(`${index === 0 ? "" : ","}\n    ${JSON.stringify(name)}: ${JSON.stringify(records)}`);
+        }
+
+        write("\n  }\n}\n");
+        controller.close();
+      } catch (error) {
+        controller.error(error);
+      }
     },
-  };
+  });
 
-  return new NextResponse(JSON.stringify(payload, null, 2), {
+  return new Response(stream, {
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/json; charset=utf-8",
       "Content-Disposition": `attachment; filename="it-manager-portal-export-${new Date().toISOString().slice(0, 10)}.json"`,
+      "Cache-Control": "private, no-store",
     },
   });
 }

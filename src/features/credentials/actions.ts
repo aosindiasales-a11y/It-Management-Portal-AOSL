@@ -15,6 +15,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "credentials" as const;
 
 export async function getCredentials(includeArchived = false) {
+  await requireAdmin();
   return prisma.credential.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { platform: "asc" },
@@ -164,5 +165,6 @@ export async function revealCredentialPassword(id: string): Promise<string> {
 }
 
 export async function getCredentialTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }

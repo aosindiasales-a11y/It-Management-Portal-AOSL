@@ -14,6 +14,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "systems" as const;
 
 export async function getSystems(includeArchived = false) {
+  await requireAdmin();
   return prisma.system.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { name: "asc" },
@@ -179,10 +180,12 @@ export async function duplicateSystem(id: string) {
 }
 
 export async function getSystemTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }
 
 export async function getSystemHistory(id: string) {
+  await requireAdmin();
   return prisma.systemHistoryEntry.findMany({ where: { systemId: id }, orderBy: { eventDate: "desc" } });
 }
 

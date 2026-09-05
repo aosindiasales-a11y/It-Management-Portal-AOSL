@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { EmptyState } from "@/components/shared/empty-state";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { runManualBackup, restoreFromUpload } from "@/features/backup/actions";
-import type { BackupFile } from "@/lib/backup";
+import type { BackupFile, BackupStatus } from "@/lib/backup";
 import { MAX_UPLOAD_SIZE_BYTES, MAX_UPLOAD_SIZE_MB } from "@/config/uploads";
 
 function formatSize(bytes: number) {
@@ -26,12 +26,34 @@ function formatDate(date: Date) {
   });
 }
 
-export function BackupPanel({ backups }: { backups: BackupFile[] }) {
+export function BackupPanel({ status }: { status: BackupStatus }) {
+  const { backups } = status;
   const router = useRouter();
   const [runningBackup, setRunningBackup] = React.useState(false);
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [restoring, setRestoring] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  if (status.mode === "managed-turso") {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Managed database protection</CardTitle>
+          <CardDescription>
+            Production data is stored in Turso, which manages durable snapshots and recovery. Raw SQLite file backup and restore are available only in local mode.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="outline" asChild>
+            <a href="/api/backup/export" download>
+              <Download className="h-4 w-4" />
+              Export records as JSON
+            </a>
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   async function handleManualBackup() {
     setRunningBackup(true);

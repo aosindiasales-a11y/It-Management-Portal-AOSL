@@ -15,6 +15,7 @@ import { normalizeCustomFields, serializeJsonValue } from "@/lib/json";
 const MODULE = "software" as const;
 
 export async function getSoftwareList(includeArchived = false) {
+  await requireAdmin();
   return prisma.software.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { name: "asc" },
@@ -136,6 +137,7 @@ export async function duplicateSoftware(id: string) {
 }
 
 export async function getSoftwareTagIds(id: string) {
+  await requireAdmin();
   return getRecordTagIds(MODULE, id);
 }
 

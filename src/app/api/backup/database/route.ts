@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { readFile } from "fs/promises";
 
-import { getSession } from "@/lib/auth/session";
-import { getDatabaseFilePath } from "@/lib/backup";
+import { getCurrentAdmin } from "@/lib/auth/dal";
+import { getBackupMode, getDatabaseFilePath } from "@/lib/backup";
 
 /** Streams the live SQLite database file — the "Download SQLite database" action in Settings. */
 export async function GET() {
-  const session = await getSession();
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const admin = await getCurrentAdmin();
+  if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  if (getBackupMode() !== "local-sqlite") {
+    return NextResponse.json(
+      { error: "Raw database downloads are unavailable with managed Turso storage." },
+      { status: 409 },
+    );
+  }
 
   try {
     const buffer = await readFile(getDatabaseFilePath());

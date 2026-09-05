@@ -14,6 +14,7 @@ import { serializeJsonValue } from "@/lib/json";
 const MODULE = "vpn" as const;
 
 export async function getVpnCredentials(includeArchived = false) {
+  await requireAdmin();
   return prisma.vpnCredential.findMany({
     where: includeArchived ? {} : { archivedAt: null },
     orderBy: { name: "asc" },
