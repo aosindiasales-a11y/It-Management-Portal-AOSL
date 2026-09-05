@@ -14,7 +14,7 @@ import { SignJWT, jwtVerify } from "jose";
  */
 
 const SESSION_COOKIE_NAME = process.env.SESSION_COOKIE_NAME || "itmp_session";
-const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/verify-2fa", "/api/diag-temp"];
+const PUBLIC_PATHS = ["/login", "/forgot-password", "/reset-password", "/verify-2fa"];
 
 const DEFAULT_SESSION_MS = 1000 * 60 * 60 * 12;
 const REMEMBER_ME_SESSION_MS = 1000 * 60 * 60 * 24 * 30;
