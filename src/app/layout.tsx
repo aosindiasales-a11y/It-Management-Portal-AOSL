@@ -4,6 +4,7 @@ import { Poppins } from "next/font/google";
 import { ThemeProvider } from "@/components/providers/theme-provider";
 import { Toaster } from "sonner";
 import { ensureSmtpVerifiedOnce } from "@/lib/mail/verify-on-boot";
+import { ensureAutoBackupScheduledOnce } from "@/lib/backup";
 
 import "./globals.css";
 
@@ -29,6 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   ensureSmtpVerifiedOnce();
+  ensureAutoBackupScheduledOnce();
 
   return (
     <html lang="en" suppressHydrationWarning className={poppins.variable}>
