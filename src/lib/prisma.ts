@@ -32,10 +32,23 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient({ log });
 }
 
-export const prisma =
-  globalForPrisma.prisma ??
-  createPrismaClient();
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
+function getPrismaClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    globalForPrisma.prisma = createPrismaClient();
+  }
+  return globalForPrisma.prisma;
 }
+
+/**
+ * Constructed lazily behind a Proxy, not at module load. Next.js's build-time
+ * "collecting page data" step imports every route module (including ones
+ * that only reach `prisma` transitively, e.g. via requireAdmin) just to
+ * inspect their exports — it never calls the handlers. An eager client here
+ * would read env vars and throw during that import, failing the build even
+ * for routes that would never run a query in that pass.
+ */
+export const prisma = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getPrismaClient(), prop, receiver);
+  },
+});
