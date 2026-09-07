@@ -11,6 +11,7 @@ export type ActivityAction =
   | "restored"
   | "deleted"
   | "duplicated"
+  | "imported"
   | "login"
   | "logout"
   | "password_revealed"
