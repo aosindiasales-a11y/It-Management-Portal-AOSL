@@ -44,7 +44,7 @@ export async function GET() {
     ["1. Fill in one row per employee on the \"Employees\" sheet. Keep the header row as-is."],
     ["2. Row 2 is example data — it's recognized automatically and never imported, even if you forget to delete it."],
     ["3. Required columns: " + IMPORT_TEMPLATE_COLUMNS.filter((c) => c.required).map((c) => c.header).join(", ") + "."],
-    ["4. Dates: use YYYY-MM-DD (e.g. 2024-01-15) or DD-MM-YYYY."],
+    ["4. Dates: use YYYY-MM-DD (e.g. 2024-01-15), DD-MM-YYYY, or DD-MMM-YYYY (e.g. 4-Feb-2017 or 4-Feb-17)."],
     ["5. Status: one of " + EMPLOYEE_STATUSES.join(", ") + ". Leave blank for new employees to default to ACTIVE."],
     ["6. Email uniquely identifies an employee — a row whose email already exists updates that employee instead of creating a duplicate."],
     ["7. Category (optional) must match an existing employee category name exactly; unknown categories are left blank."],

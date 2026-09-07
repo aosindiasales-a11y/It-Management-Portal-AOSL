@@ -17,28 +17,79 @@ export function normalizeStatus(raw: string): string {
   return raw.trim().toUpperCase().replace(/[\s-]+/g, "_");
 }
 
-/** Accepts ISO (YYYY-MM-DD, incl. the ISO strings exceljs date cells are normalized to) and day-first DD-MM-YYYY / DD/MM/YYYY. */
+const MONTH_NAMES: Record<string, number> = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, sept: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+/** 2-digit years follow the common strptime "%y" pivot: 00-68 -> 20xx, 69-99 -> 19xx. */
+function expandTwoDigitYear(yy: number): number {
+  return yy <= 68 ? 2000 + yy : 1900 + yy;
+}
+
+/** Builds a UTC date and rejects overflow (e.g. day 31 in a 30-day month) instead of silently rolling into the next month. */
+function makeUtcDate(year: number, month: number, day: number): Date | null {
+  if (month < 0 || month > 11 || day < 1 || day > 31) return null;
+  const date = new Date(Date.UTC(year, month, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month || date.getUTCDate() !== day) return null;
+  return date;
+}
+
+/**
+ * Accepts ISO (YYYY-MM-DD, incl. the ISO strings exceljs date cells are
+ * normalized to), day-first numeric DD-MM-YYYY / DD/MM/YYYY (2- or 4-digit
+ * year), and day-first month-name DD-MMM-YYYY / DD MMM YY (e.g. "4-Feb-17",
+ * "14 April 2025") — the format most spreadsheet exports use for dates.
+ */
 export function parseImportDate(raw: string): Date | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 
   const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) {
-    const date = new Date(Date.UTC(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3])));
-    return Number.isNaN(date.getTime()) ? null : date;
+    return makeUtcDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
   }
 
-  const dmy = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  const dmy = trimmed.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2}|\d{4})$/);
   if (dmy) {
-    const day = Number(dmy[1]);
-    const month = Number(dmy[2]);
-    const year = Number(dmy[3]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    const date = new Date(Date.UTC(year, month - 1, day));
-    return Number.isNaN(date.getTime()) ? null : date;
+    const [, dayText, monthText, yearText] = dmy as unknown as [string, string, string, string];
+    const day = Number(dayText);
+    const month = Number(monthText) - 1;
+    const year = yearText.length === 2 ? expandTwoDigitYear(Number(yearText)) : Number(yearText);
+    return makeUtcDate(year, month, day);
+  }
+
+  const dmyName = trimmed.match(/^(\d{1,2})[\s.-]+([A-Za-z]{3,9})[\s.,-]+(\d{2}|\d{4})$/);
+  if (dmyName) {
+    const [, dayText, monthText, yearText] = dmyName as unknown as [string, string, string, string];
+    const month = MONTH_NAMES[monthText.toLowerCase()];
+    if (month === undefined) return null;
+    const day = Number(dayText);
+    const year = yearText.length === 2 ? expandTwoDigitYear(Number(yearText)) : Number(yearText);
+    return makeUtcDate(year, month, day);
   }
 
   return null;
+}
+
+/**
+ * Strips stray characters spreadsheets/PDF copy-paste often leave behind
+ * (stray "?" from a rendered phone-icon glyph, bullets, etc.), keeping only
+ * digits and standard phone punctuation. Used both to validate and to store
+ * the value, so junk characters never reach the database.
+ */
+export function cleanPhone(raw: string): string {
+  return raw.trim().replace(/[^\d+\-\s()]/g, "");
 }
 
 function validateRow(input: ImportRowInput): string[] {
@@ -56,16 +107,16 @@ function validateRow(input: ImportRowInput): string[] {
   if (!email) errors.push("Email is required");
   else if (!emailSchema.safeParse(email).success) errors.push(`Invalid email address: "${email}"`);
 
-  const phone = input.phone.trim();
+  const phone = cleanPhone(input.phone);
   if (phone) {
     const digits = phone.replace(/[\s()+-]/g, "");
-    if (!/^\d{6,20}$/.test(digits)) errors.push(`Invalid phone number: "${phone}"`);
+    if (!/^\d{6,20}$/.test(digits)) errors.push(`Invalid phone number: "${input.phone.trim()}"`);
   }
 
   if (!input.joiningDateRaw.trim()) {
     errors.push("Joining date is required");
   } else if (!parseImportDate(input.joiningDateRaw)) {
-    errors.push(`Invalid joining date: "${input.joiningDateRaw}" (use YYYY-MM-DD)`);
+    errors.push(`Invalid joining date: "${input.joiningDateRaw}" (use YYYY-MM-DD, DD-MM-YYYY or DD-MMM-YYYY)`);
   }
 
   const status = input.status.trim();

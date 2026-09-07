@@ -26,7 +26,7 @@ export const IMPORT_FIELD_HEADERS: Record<ImportField, string[]> = {
   name: ["Full Name", "Name", "Employee Name"],
   department: ["Department", "Dept"],
   email: ["Email", "Email Address", "Work Email"],
-  phone: ["Phone", "Phone Number", "Mobile", "Mobile Number"],
+  phone: ["Phone", "Phone Number", "Phone No", "Mobile", "Mobile Number", "Contact Number", "Contact No"],
   joiningDate: ["Joining Date", "Date Of Joining", "DOJ", "Join Date"],
   status: ["Status"],
   category: ["Category"],

@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/dal";
 import { logActivity } from "@/lib/activity";
 import { parseImportFile, ImportParseError } from "./parse";
-import { classifyRows, normalizeStatus, parseImportDate, type ClassifyContext } from "./validate";
+import { classifyRows, cleanPhone, normalizeStatus, parseImportDate, type ClassifyContext } from "./validate";
 import { summarize } from "./types";
 import type { ImportPreviewResult, ImportResult, ImportRow, ImportRowInput, ImportRowOutcome } from "./types";
 import { ACCEPTED_IMPORT_EXTENSIONS, MAX_IMPORT_FILE_SIZE_BYTES, MAX_IMPORT_FILE_SIZE_MB, MAX_IMPORT_ROWS } from "./constants";
@@ -71,7 +71,7 @@ export async function previewEmployeeImport(formData: FormData): Promise<ActionR
 function buildCreateData(row: ImportRow, ctx: ClassifyContext): Prisma.EmployeeCreateInput {
   const { input } = row;
   const status = input.status.trim();
-  const phone = input.phone.trim();
+  const phone = cleanPhone(input.phone);
   const notes = input.notes.trim();
   const category = input.category.trim();
 
@@ -92,7 +92,7 @@ function buildCreateData(row: ImportRow, ctx: ClassifyContext): Prisma.EmployeeC
 function buildUpdateData(row: ImportRow, ctx: ClassifyContext): Prisma.EmployeeUpdateInput {
   const { input } = row;
   const status = input.status.trim();
-  const phone = input.phone.trim();
+  const phone = cleanPhone(input.phone);
   const notes = input.notes.trim();
   const category = input.category.trim();
 
