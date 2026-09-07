@@ -12,6 +12,7 @@ export type ActivityAction =
   | "deleted"
   | "duplicated"
   | "imported"
+  | "deleted_all_employees"
   | "login"
   | "logout"
   | "password_revealed"

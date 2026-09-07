@@ -16,11 +16,14 @@ export type ActionResult<T> = { success: true; data: T } | { success: false; err
 
 async function buildClassifyContext(): Promise<ClassifyContext> {
   const [employees, categories] = await Promise.all([
-    prisma.employee.findMany({ select: { id: true, email: true, name: true } }),
+    prisma.employee.findMany({ select: { id: true, employeeId: true, email: true, name: true } }),
     prisma.category.findMany({ where: { module: "employees" }, select: { id: true, name: true } }),
   ]);
 
   return {
+    existingByEmployeeId: new Map(
+      employees.filter((e) => e.employeeId).map((e) => [e.employeeId!.toLowerCase(), { id: e.id, name: e.name }])
+    ),
     existingByEmail: new Map(employees.map((e) => [e.email.toLowerCase(), { id: e.id, name: e.name }])),
     categoryIdByName: new Map(categories.map((c) => [c.name.toLowerCase(), c.id])),
   };
@@ -76,9 +79,11 @@ function buildCreateData(row: ImportRow, ctx: ClassifyContext): Prisma.EmployeeC
   const category = input.category.trim();
 
   return {
+    employeeId: input.employeeId.trim(),
     name: input.name.trim(),
     department: input.department.trim(),
     email: input.email.trim(),
+    dateOfBirth: parseImportDate(input.dateOfBirthRaw)!,
     joiningDate: parseImportDate(input.joiningDateRaw)!,
     status: status ? normalizeStatus(status) : "ACTIVE",
     phone: phone || null,
@@ -97,9 +102,11 @@ function buildUpdateData(row: ImportRow, ctx: ClassifyContext): Prisma.EmployeeU
   const category = input.category.trim();
 
   const data: Prisma.EmployeeUpdateInput = {
+    employeeId: input.employeeId.trim(),
     name: input.name.trim(),
     department: input.department.trim(),
     email: input.email.trim(),
+    dateOfBirth: parseImportDate(input.dateOfBirthRaw)!,
     joiningDate: parseImportDate(input.joiningDateRaw)!,
   };
   if (status) data.status = normalizeStatus(status);

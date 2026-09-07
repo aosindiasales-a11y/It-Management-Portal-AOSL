@@ -3,7 +3,7 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Upload, Users } from "lucide-react";
+import { Trash2, Upload, Users } from "lucide-react";
 import type { Category, Employee, Tag } from "@prisma/client";
 import { DataTable } from "@/components/data-table/data-table";
 import { DataTableFacetFilter } from "@/components/data-table/data-table-facet-filter";
@@ -18,6 +18,7 @@ import { useHotkey } from "@/hooks/use-hotkey";
 import { buildEmployeeColumns } from "@/features/employees/components/employee-columns";
 import { EmployeeForm } from "@/features/employees/components/employee-form";
 import { ImportEmployeesDialog } from "@/features/employees/components/import-employees-dialog";
+import { DeleteAllEmployeesDialog } from "@/features/employees/components/delete-all-employees-dialog";
 import { archiveEmployee, deleteEmployee, duplicateEmployee, getEmployeeTagIds, restoreEmployee } from "@/features/employees/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields/types";
 
@@ -40,6 +41,7 @@ export function EmployeesView({ employees, categories, allTags, tagMap, customFi
   const [archiveTarget, setArchiveTarget] = React.useState<Employee | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<Employee | null>(null);
   const [importOpen, setImportOpen] = React.useState(false);
+  const [deleteAllOpen, setDeleteAllOpen] = React.useState(false);
 
   const openEmployeeId = searchParams.get("open");
   React.useEffect(() => {
@@ -111,6 +113,15 @@ export function EmployeesView({ employees, categories, allTags, tagMap, customFi
             <Upload className="h-3.5 w-3.5" />
             Import Employees
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => setDeleteAllOpen(true)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete All Employees
+          </Button>
           <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <Switch checked={showArchived} onCheckedChange={setShowArchived} />
             <Label className="cursor-pointer font-normal">Show archived</Label>
@@ -145,6 +156,13 @@ export function EmployeesView({ employees, categories, allTags, tagMap, customFi
       <QuickAddFab label="Add Employee" onClick={openCreate} />
 
       <ImportEmployeesDialog open={importOpen} onOpenChange={setImportOpen} onImported={() => router.refresh()} />
+
+      <DeleteAllEmployeesDialog
+        open={deleteAllOpen}
+        onOpenChange={setDeleteAllOpen}
+        employeeCount={employees.length}
+        onDeleted={() => router.refresh()}
+      />
 
       <RecordSheet
         open={sheetMode !== null}

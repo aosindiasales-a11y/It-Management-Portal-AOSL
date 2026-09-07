@@ -49,6 +49,14 @@ export function buildEmployeeColumns({
 
   return [
     {
+      id: "employeeId",
+      accessorFn: (row) => row.employeeId ?? "",
+      header: "Employee ID",
+      cell: ({ row }) => (
+        <span className="text-sm text-foreground">{row.original.employeeId || <span className="text-muted-foreground">—</span>}</span>
+      ),
+    },
+    {
       id: "name",
       accessorFn: (row) => row.name,
       header: "Employee",
@@ -63,6 +71,12 @@ export function buildEmployeeColumns({
           </div>
         </div>
       ),
+    },
+    {
+      id: "dateOfBirth",
+      accessorFn: (row) => row.dateOfBirth,
+      header: "Date of Birth",
+      cell: ({ row }) => <span className="text-sm text-muted-foreground">{formatDate(row.original.dateOfBirth)}</span>,
     },
     {
       id: "department",

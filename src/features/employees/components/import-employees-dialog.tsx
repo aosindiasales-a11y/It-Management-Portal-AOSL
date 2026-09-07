@@ -74,14 +74,21 @@ async function downloadErrorReport(result: ImportResult): Promise<void> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Errors");
 
-  sheet.addRow(["Row", "Name", "Email", "Department", "Error"]);
+  sheet.addRow(["Row", "Employee ID", "Employee Name", "Email", "Department", "Error"]);
   sheet.getRow(1).font = { bold: true };
   sheet.getRow(1).eachCell((cell) => {
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE5E7EB" } };
   });
 
   result.failures.forEach((failure) => {
-    sheet.addRow([failure.rowNumber, failure.input.name || "—", failure.input.email || "—", failure.input.department || "—", failure.error ?? ""]);
+    sheet.addRow([
+      failure.rowNumber,
+      failure.input.employeeId || "—",
+      failure.input.name || "—",
+      failure.input.email || "—",
+      failure.input.department || "—",
+      failure.error ?? "",
+    ]);
   });
   sheet.columns.forEach((column) => {
     column.width = 24;
@@ -264,7 +271,9 @@ export function ImportEmployeesDialog({ open, onOpenChange, onImported }: Import
                 <thead className="sticky top-0 bg-secondary/95 backdrop-blur">
                   <tr>
                     <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Row</th>
-                    <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Employee</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Employee ID</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Employee Name</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">DOB</th>
                     <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Email</th>
                     <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Department</th>
                     <th className="whitespace-nowrap px-3 py-2 text-left text-xs font-medium text-muted-foreground">Action</th>
@@ -275,7 +284,9 @@ export function ImportEmployeesDialog({ open, onOpenChange, onImported }: Import
                   {pageRows.map((row) => (
                     <tr key={row.rowNumber}>
                       <td className="px-3 py-2 text-muted-foreground">{row.rowNumber}</td>
+                      <td className="max-w-[120px] truncate px-3 py-2">{row.input.employeeId || "—"}</td>
                       <td className="max-w-[160px] truncate px-3 py-2">{row.input.name || "—"}</td>
+                      <td className="max-w-[110px] truncate px-3 py-2">{row.input.dateOfBirthRaw || "—"}</td>
                       <td className="max-w-[200px] truncate px-3 py-2">{row.input.email || "—"}</td>
                       <td className="max-w-[140px] truncate px-3 py-2">{row.input.department || "—"}</td>
                       <td className="px-3 py-2">

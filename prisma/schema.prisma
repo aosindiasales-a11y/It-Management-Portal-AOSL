@@ -227,10 +227,15 @@ model Attachment {
 
 model Employee {
   id           String    @id @default(cuid())
+  // Nullable at the database level even though the form/import require it
+  // for every new save going forward — existing employees created before
+  // this field existed must not be broken, blanked, or deleted by adding it.
+  employeeId   String?   @unique
   name         String
   department   String
   email        String    @unique
   phone        String?
+  dateOfBirth  DateTime?
   joiningDate  DateTime
   status       String    @default("ACTIVE")
   categoryId   String?

@@ -1,13 +1,16 @@
 import { z } from "zod";
 
 import { EMPLOYEE_STATUSES } from "@/features/employees/schema";
-import { TEMPLATE_SAMPLE_EMAIL } from "./constants";
+import { TEMPLATE_SAMPLE_EMAIL, TEMPLATE_SAMPLE_EMPLOYEE_ID } from "./constants";
 import type { ImportRow, ImportRowInput } from "./types";
 import type { ParsedImportRow } from "./parse";
 
 const emailSchema = z.string().trim().email();
 
 export interface ClassifyContext {
+  /** Keyed by lower-cased Employee ID — the primary match/dedupe key for import. */
+  existingByEmployeeId: Map<string, { id: string; name: string }>;
+  /** Keyed by lower-cased email — used only to catch a row's email colliding with a *different* employee's email before it hits the DB's unique constraint. */
   existingByEmail: Map<string, { id: string; name: string }>;
   categoryIdByName: Map<string, string>;
 }
@@ -95,9 +98,13 @@ export function cleanPhone(raw: string): string {
 function validateRow(input: ImportRowInput): string[] {
   const errors: string[] = [];
 
+  const employeeId = input.employeeId.trim();
+  if (!employeeId) errors.push("Employee ID is required.");
+  else if (employeeId.length > 50) errors.push("Employee ID must be 50 characters or fewer");
+
   const name = input.name.trim();
-  if (!name) errors.push("Name is required");
-  else if (name.length > 120) errors.push("Name must be 120 characters or fewer");
+  if (!name) errors.push("Employee Name is required.");
+  else if (name.length > 120) errors.push("Employee Name must be 120 characters or fewer");
 
   const department = input.department.trim();
   if (!department) errors.push("Department is required");
@@ -111,6 +118,14 @@ function validateRow(input: ImportRowInput): string[] {
   if (phone) {
     const digits = phone.replace(/[\s()+-]/g, "");
     if (!/^\d{6,20}$/.test(digits)) errors.push(`Invalid phone number: "${input.phone.trim()}"`);
+  }
+
+  if (!input.dateOfBirthRaw.trim()) {
+    errors.push("Date of Birth is required.");
+  } else {
+    const dob = parseImportDate(input.dateOfBirthRaw);
+    if (!dob) errors.push("Invalid Date of Birth format.");
+    else if (dob.getTime() > Date.now()) errors.push("Date of Birth cannot be in the future.");
   }
 
   if (!input.joiningDateRaw.trim()) {
@@ -135,18 +150,21 @@ function validateRow(input: ImportRowInput): string[] {
 /**
  * Classifies parsed rows against the current database state (fresh reads,
  * never client-supplied) into NEW / UPDATE / INVALID / DUPLICATE-in-file /
- * SAMPLE, in file order. Duplicate-in-file detection and DB matching both
- * key off the trimmed, lower-cased email — SQLite's connector doesn't
- * support Prisma's case-insensitive `mode`, so the comparison happens here.
+ * SAMPLE, in file order. Employee ID (trimmed, lower-cased) is the primary
+ * match/dedupe key — SQLite's connector doesn't support Prisma's
+ * case-insensitive `mode`, so the comparison happens here. A row whose email
+ * belongs to a *different* existing employee than the one its Employee ID
+ * matched is rejected as INVALID rather than left to fail at the database's
+ * unique constraint during the write.
  */
 export function classifyRows(parsedRows: ParsedImportRow[], ctx: ClassifyContext): ImportRow[] {
-  const seenEmails = new Map<string, number>();
+  const seenEmployeeIds = new Map<string, number>();
 
   return parsedRows.map(({ rowNumber, input }): ImportRow => {
-    const email = input.email.trim();
-    const emailLower = email.toLowerCase();
+    const employeeIdLower = input.employeeId.trim().toLowerCase();
+    const emailLower = input.email.trim().toLowerCase();
 
-    if (emailLower === TEMPLATE_SAMPLE_EMAIL) {
+    if (employeeIdLower === TEMPLATE_SAMPLE_EMPLOYEE_ID.toLowerCase() || emailLower === TEMPLATE_SAMPLE_EMAIL) {
       return {
         rowNumber,
         input,
@@ -168,22 +186,34 @@ export function classifyRows(parsedRows: ParsedImportRow[], ctx: ClassifyContext
       return { rowNumber, input, action: "INVALID", errors, warnings };
     }
 
-    const firstSeenAtRow = seenEmails.get(emailLower);
+    const firstSeenAtRow = seenEmployeeIds.get(employeeIdLower);
     if (firstSeenAtRow !== undefined) {
       return {
         rowNumber,
         input,
         action: "DUPLICATE",
-        errors: [`Duplicate email in this file — already used on row ${firstSeenAtRow}`],
+        errors: [`Duplicate Employee ID in this file — already used on row ${firstSeenAtRow}`],
         warnings,
         firstSeenAtRow,
       };
     }
-    seenEmails.set(emailLower, rowNumber);
+    seenEmployeeIds.set(employeeIdLower, rowNumber);
 
-    const existing = ctx.existingByEmail.get(emailLower);
-    if (existing) {
-      return { rowNumber, input, action: "UPDATE", errors: [], warnings, existingEmployeeId: existing.id };
+    const existingById = ctx.existingByEmployeeId.get(employeeIdLower);
+    const existingByEmail = ctx.existingByEmail.get(emailLower);
+
+    if (existingByEmail && (!existingById || existingByEmail.id !== existingById.id)) {
+      return {
+        rowNumber,
+        input,
+        action: "INVALID",
+        errors: [`Email "${input.email.trim()}" is already used by another employee`],
+        warnings,
+      };
+    }
+
+    if (existingById) {
+      return { rowNumber, input, action: "UPDATE", errors: [], warnings, existingEmployeeId: existingById.id };
     }
 
     return { rowNumber, input, action: "NEW", errors: [], warnings };

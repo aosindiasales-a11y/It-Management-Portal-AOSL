@@ -8,11 +8,13 @@ export type ImportRowAction = "NEW" | "UPDATE" | "INVALID" | "DUPLICATE" | "SAMP
 
 /** Normalized-but-unvalidated text pulled from one spreadsheet row. */
 export interface ImportRowInput {
+  employeeId: string;
   name: string;
   department: string;
   email: string;
   phone: string;
   /** Raw cell text/date as read from the sheet, before date parsing. */
+  dateOfBirthRaw: string;
   joiningDateRaw: string;
   status: string;
   category: string;

@@ -79,7 +79,7 @@ export async function parseImportFile(buffer: Buffer, fileName: string): Promise
     columnFields[colNumber] = text ? HEADER_LOOKUP.get(normalizeHeader(text)) ?? null : null;
   });
 
-  const requiredFields: ImportField[] = ["name", "department", "email", "joiningDate"];
+  const requiredFields: ImportField[] = ["employeeId", "name", "dateOfBirth", "department", "email", "joiningDate"];
   const missing = requiredFields.filter((field) => !columnFields.includes(field));
   if (missing.length > 0) {
     throw new ImportParseError(
@@ -115,10 +115,12 @@ export async function parseImportFile(buffer: Buffer, fileName: string): Promise
     rows.push({
       rowNumber,
       input: {
+        employeeId: values.employeeId ?? "",
         name: values.name ?? "",
         department: values.department ?? "",
         email: values.email ?? "",
         phone: values.phone ?? "",
+        dateOfBirthRaw: values.dateOfBirth ?? "",
         joiningDateRaw: values.joiningDate ?? "",
         status: values.status ?? "",
         category: values.category ?? "",

@@ -44,10 +44,12 @@ export function EmployeeForm({ employee, initialTagIds = [], categories, allTags
 
   const defaultValues: EmployeeFormValues = employee
     ? {
+        employeeId: employee.employeeId ?? "",
         name: employee.name,
         department: employee.department,
         email: employee.email,
         phone: employee.phone ?? "",
+        dateOfBirth: employee.dateOfBirth ? employee.dateOfBirth.toISOString().slice(0, 10) : "",
         joiningDate: employee.joiningDate.toISOString().slice(0, 10),
         status: employee.status as EmployeeFormValues["status"],
         categoryId: employee.categoryId,
@@ -63,6 +65,7 @@ export function EmployeeForm({ employee, initialTagIds = [], categories, allTags
     watch,
     setValue,
     getValues,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<EmployeeFormValues>({
     resolver: zodResolver(employeeSchema),
@@ -80,14 +83,16 @@ export function EmployeeForm({ employee, initialTagIds = [], categories, allTags
 
   async function onSubmit(values: EmployeeFormValues) {
     try {
-      if (isEditing) {
-        await updateEmployee(employee.id, values);
-        toast.success("Employee updated");
-      } else {
-        await createEmployee(values);
-        toast.success("Employee added");
-        draft.clearDraft();
+      const result = isEditing ? await updateEmployee(employee.id, values) : await createEmployee(values);
+
+      if (!result.success) {
+        if (result.field) setError(result.field, { message: result.error });
+        toast.error(result.error);
+        return;
       }
+
+      toast.success(isEditing ? "Employee updated" : "Employee added");
+      if (!isEditing) draft.clearDraft();
       onSuccess();
     } catch {
       toast.error("Couldn't save this employee. Check the form and try again.");
@@ -103,8 +108,13 @@ export function EmployeeForm({ employee, initialTagIds = [], categories, allTags
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="name">Full name</Label>
-          <Input id="name" {...register("name")} autoFocus />
+          <Label htmlFor="employeeId">Employee ID *</Label>
+          <Input id="employeeId" {...register("employeeId")} autoFocus placeholder="EMP001" />
+          {errors.employeeId && <p className="text-xs text-destructive">{errors.employeeId.message}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="name">Employee Name *</Label>
+          <Input id="name" {...register("name")} />
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-1.5">
@@ -120,6 +130,11 @@ export function EmployeeForm({ employee, initialTagIds = [], categories, allTags
         <div className="space-y-1.5">
           <Label htmlFor="phone">Phone</Label>
           <Input id="phone" type="tel" {...register("phone")} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="dateOfBirth">Date of Birth *</Label>
+          <Input id="dateOfBirth" type="date" max={new Date().toISOString().slice(0, 10)} {...register("dateOfBirth")} />
+          {errors.dateOfBirth && <p className="text-xs text-destructive">{errors.dateOfBirth.message}</p>}
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="joiningDate">Joining date</Label>
