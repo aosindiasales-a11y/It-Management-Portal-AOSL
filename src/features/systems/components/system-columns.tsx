@@ -2,38 +2,49 @@
 
 import type { ColumnDef } from "@tanstack/react-table";
 import type { Category, Employee, System, Tag } from "@prisma/client";
-import { ShieldAlert } from "lucide-react";
+import { KeyRound, ShieldAlert, UserCog, UserX } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { RowActionsMenu } from "@/components/data-table/row-actions-menu";
 import { multiSelectFilter } from "@/components/data-table/filter-fns";
 import { TagList } from "@/features/tags/components/tag-list";
 import { daysUntil, formatDate } from "@/lib/utils";
+import type { SafeCredential } from "@/features/systems/types";
 
 const STATUS_STYLES: Record<System["status"], string> = {
-  ACTIVE: "bg-success/15 text-success",
-  IN_REPAIR: "bg-warning/15 text-warning",
-  SPARE: "bg-secondary text-secondary-foreground",
+  ALLOCATED: "bg-success/15 text-success",
+  VACANT: "bg-secondary text-secondary-foreground",
+  REPAIR: "bg-warning/15 text-warning",
   RETIRED: "bg-muted text-muted-foreground",
 };
 
 const STATUS_LABELS: Record<System["status"], string> = {
-  ACTIVE: "Active",
-  IN_REPAIR: "In repair",
-  SPARE: "Spare",
+  ALLOCATED: "Allocated",
+  VACANT: "Vacant",
+  REPAIR: "Repair",
   RETIRED: "Retired",
 };
+
+function YesNoCell({ value }: { value: string | null }) {
+  if (!value) return <span className="text-muted-foreground">—</span>;
+  return <span className={value === "Yes" ? "text-foreground" : "text-muted-foreground"}>{value}</span>;
+}
 
 interface BuildColumnsArgs {
   categories: Category[];
   tagMap: Record<string, string[]>;
   allTags: Tag[];
   employees: Employee[];
+  credentials: SafeCredential[];
   onEdit: (system: System) => void;
   onDuplicate: (system: System) => void;
   onArchive: (system: System) => void;
   onRestore: (system: System) => void;
   onDelete: (system: System) => void;
+  onAssign: (system: System) => void;
+  onMarkVacant: (system: System) => void;
+  onViewCredential: (system: System) => void;
 }
 
 export function buildSystemColumns({
@@ -41,26 +52,65 @@ export function buildSystemColumns({
   tagMap,
   allTags,
   employees,
+  credentials,
   onEdit,
   onDuplicate,
   onArchive,
   onRestore,
   onDelete,
+  onAssign,
+  onMarkVacant,
+  onViewCredential,
 }: BuildColumnsArgs): ColumnDef<System, unknown>[] {
   const categoryById = new Map(categories.map((c) => [c.id, c]));
   const employeeById = new Map(employees.map((e) => [e.id, e]));
+  const credentialById = new Map(credentials.map((c) => [c.id, c]));
 
   return [
     {
       id: "name",
       accessorFn: (row) => row.name,
-      header: "System",
+      header: "System Name",
       cell: ({ row }) => (
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-foreground">{row.original.name}</p>
-          <p className="truncate text-xs text-muted-foreground">{row.original.assetId}</p>
+          {row.original.assetType && <p className="truncate text-xs text-muted-foreground">{row.original.assetType}</p>}
         </div>
       ),
+    },
+    {
+      id: "assignedTo",
+      accessorFn: (row) => row.assignedEmployeeId ?? "",
+      header: "Allocated To",
+      filterFn: multiSelectFilter,
+      cell: ({ row }) => {
+        const employee = row.original.assignedEmployeeId ? employeeById.get(row.original.assignedEmployeeId) : null;
+        return <span className="text-sm text-foreground">{employee?.name ?? <span className="text-muted-foreground">Unassigned</span>}</span>;
+      },
+    },
+    {
+      id: "assetId",
+      accessorFn: (row) => row.assetId,
+      header: "Asset Code",
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm text-foreground">{row.original.assetId}</span>,
+    },
+    {
+      id: "keyboard",
+      accessorFn: (row) => row.keyboard ?? "",
+      header: "Keyboard",
+      cell: ({ row }) => <YesNoCell value={row.original.keyboard} />,
+    },
+    {
+      id: "mousePad",
+      accessorFn: (row) => row.mousePad ?? "",
+      header: "Mouse/Pad",
+      cell: ({ row }) => <YesNoCell value={row.original.mousePad} />,
+    },
+    {
+      id: "charger",
+      accessorFn: (row) => row.charger ?? "",
+      header: "Charger",
+      cell: ({ row }) => <YesNoCell value={row.original.charger} />,
     },
     {
       id: "status",
@@ -70,14 +120,11 @@ export function buildSystemColumns({
       cell: ({ row }) => <Badge className={`border-0 ${STATUS_STYLES[row.original.status]}`}>{STATUS_LABELS[row.original.status]}</Badge>,
     },
     {
-      id: "assignedTo",
-      accessorFn: (row) => row.assignedEmployeeId ?? "",
-      header: "Assigned to",
+      id: "assetType",
+      accessorFn: (row) => row.assetType ?? "",
+      header: "Type",
       filterFn: multiSelectFilter,
-      cell: ({ row }) => {
-        const employee = row.original.assignedEmployeeId ? employeeById.get(row.original.assignedEmployeeId) : null;
-        return <span className="text-sm text-foreground">{employee?.name ?? <span className="text-muted-foreground">Unassigned</span>}</span>;
-      },
+      cell: ({ row }) => row.original.assetType ?? <span className="text-muted-foreground">—</span>,
     },
     {
       id: "category",
@@ -124,18 +171,42 @@ export function buildSystemColumns({
     {
       id: "actions",
       header: "",
-      cell: ({ row }) => (
-        <div className="flex justify-end">
-          <RowActionsMenu
-            onEdit={() => onEdit(row.original)}
-            onDuplicate={() => onDuplicate(row.original)}
-            onArchive={!row.original.archivedAt ? () => onArchive(row.original) : undefined}
-            onRestore={row.original.archivedAt ? () => onRestore(row.original) : undefined}
-            onDelete={() => onDelete(row.original)}
-            archived={!!row.original.archivedAt}
-          />
-        </div>
-      ),
+      cell: ({ row }) => {
+        const system = row.original;
+        const hasCredential = !!system.credentialId && credentialById.has(system.credentialId);
+        return (
+          <div className="flex justify-end">
+            <RowActionsMenu
+              onEdit={() => onEdit(system)}
+              onDuplicate={() => onDuplicate(system)}
+              onArchive={!system.archivedAt ? () => onArchive(system) : undefined}
+              onRestore={system.archivedAt ? () => onRestore(system) : undefined}
+              onDelete={() => onDelete(system)}
+              archived={!!system.archivedAt}
+              extraItems={
+                <>
+                  <DropdownMenuItem onSelect={() => onAssign(system)}>
+                    <UserCog />
+                    {system.assignedEmployeeId ? "Reassign" : "Assign"}
+                  </DropdownMenuItem>
+                  {system.assignedEmployeeId && (
+                    <DropdownMenuItem onSelect={() => onMarkVacant(system)}>
+                      <UserX />
+                      Mark Vacant
+                    </DropdownMenuItem>
+                  )}
+                  {hasCredential && (
+                    <DropdownMenuItem onSelect={() => onViewCredential(system)}>
+                      <KeyRound />
+                      View Credential
+                    </DropdownMenuItem>
+                  )}
+                </>
+              }
+            />
+          </div>
+        );
+      },
     },
   ];
 }

@@ -26,10 +26,24 @@ async function validateCustomFields(values: Record<string, unknown>) {
   return buildCustomFieldsSchema(defs).parse(values);
 }
 
+/**
+ * Keeps status and assignment in sync for the common cases without
+ * overriding a deliberate REPAIR/RETIRED choice: picking an employee while
+ * status is still the idle default flips it to ALLOCATED, and clearing the
+ * employee while status is ALLOCATED flips it back to VACANT.
+ */
+function deriveStatus(status: SystemFormValues["status"], assignedEmployeeId: string | null): SystemFormValues["status"] {
+  if (assignedEmployeeId && status === "VACANT") return "ALLOCATED";
+  if (!assignedEmployeeId && status === "ALLOCATED") return "VACANT";
+  return status;
+}
+
 function toData(parsed: SystemFormValues, customFields: Record<string, unknown>) {
+  const assignedEmployeeId = parsed.assignedEmployeeId || null;
   return {
     assetId: parsed.assetId,
     name: parsed.name,
+    assetType: parsed.assetType || null,
     serialNumber: parsed.serialNumber || null,
     manufacturer: parsed.manufacturer || null,
     model: parsed.model || null,
@@ -40,11 +54,15 @@ function toData(parsed: SystemFormValues, customFields: Record<string, unknown>)
     officeVersion: parsed.officeVersion || null,
     purchaseDate: parsed.purchaseDate ? new Date(parsed.purchaseDate) : null,
     warrantyExpiry: parsed.warrantyExpiry ? new Date(parsed.warrantyExpiry) : null,
-    status: parsed.status,
+    status: deriveStatus(parsed.status, assignedEmployeeId),
+    keyboard: parsed.keyboard ?? null,
+    mousePad: parsed.mousePad ?? null,
+    charger: parsed.charger ?? null,
     categoryId: parsed.categoryId || null,
     location: parsed.location || null,
     notes: parsed.notes || null,
-    assignedEmployeeId: parsed.assignedEmployeeId || null,
+    assignedEmployeeId,
+    credentialId: parsed.credentialId || null,
     customFields: serializeJsonValue(customFields),
   };
 }
@@ -151,6 +169,7 @@ export async function duplicateSystem(id: string) {
     data: {
       assetId,
       name: `${original.name} (Copy)`,
+      assetType: original.assetType,
       serialNumber: null, // serial numbers must stay unique per physical device
       manufacturer: original.manufacturer,
       model: original.model,
@@ -161,10 +180,16 @@ export async function duplicateSystem(id: string) {
       officeVersion: original.officeVersion,
       purchaseDate: original.purchaseDate,
       warrantyExpiry: original.warrantyExpiry,
-      status: original.status,
+      // A duplicate is a new, unassigned physical unit — never inherit ALLOCATED without an assigned employee.
+      status: original.status === "ALLOCATED" ? "VACANT" : original.status,
+      keyboard: original.keyboard,
+      mousePad: original.mousePad,
+      charger: original.charger,
       categoryId: original.categoryId,
       location: original.location,
       notes: original.notes,
+      // A duplicated asset gets its own credential reference, never a shared copy of another asset's link.
+      credentialId: null,
       customFields: original.customFields ?? undefined,
     },
   });
@@ -204,4 +229,87 @@ export async function addSystemHistoryEntry(systemId: string, eventType: string,
   });
   revalidatePath("/systems");
   return entry;
+}
+
+export type AssignSystemResult = { success: true } | { success: false; error: string };
+
+/**
+ * The "Assign / Reassign" quick action (distinct from the full Edit form):
+ * always drives the asset to ALLOCATED and records the handover in both the
+ * allocation history and the asset's timeline, closing out the previous
+ * owner's open allocation window if there was one.
+ */
+export async function assignSystem(systemId: string, employeeId: string): Promise<AssignSystemResult> {
+  await requireAdmin();
+  const employee = await prisma.employee.findUnique({ where: { id: employeeId } });
+  if (!employee) return { success: false, error: "Selected employee does not exist." };
+
+  const previous = await prisma.system.findUniqueOrThrow({ where: { id: systemId } });
+  const alreadyAssignedToThisEmployee = previous.assignedEmployeeId === employeeId;
+
+  const system = await prisma.system.update({
+    where: { id: systemId },
+    data: { assignedEmployeeId: employeeId, status: "ALLOCATED" },
+  });
+
+  if (!alreadyAssignedToThisEmployee) {
+    if (previous.assignedEmployeeId) {
+      await prisma.allocationHistory.updateMany({
+        where: { systemId, employeeId: previous.assignedEmployeeId, unassignedAt: null },
+        data: { unassignedAt: new Date() },
+      });
+    }
+    await prisma.allocationHistory.create({ data: { systemId, employeeId } });
+    await prisma.systemHistoryEntry.create({
+      data: {
+        systemId,
+        eventType: previous.assignedEmployeeId ? "Reassigned" : "Assigned",
+        description: `Allocated to ${employee.name}`,
+      },
+    });
+  }
+
+  await logActivity({
+    action: "assigned",
+    module: MODULE,
+    recordId: systemId,
+    label: system.name,
+    description: `Assigned ${system.name} (${system.assetId}) to ${employee.name}`,
+  });
+
+  revalidatePath("/systems");
+  revalidatePath("/dashboard");
+  return { success: true };
+}
+
+/** The "Mark Vacant" quick action: clears the assigned employee and drives the asset to VACANT without deleting it. */
+export async function markSystemVacant(systemId: string): Promise<void> {
+  await requireAdmin();
+  const previous = await prisma.system.findUniqueOrThrow({ where: { id: systemId } });
+
+  const system = await prisma.system.update({
+    where: { id: systemId },
+    data: { assignedEmployeeId: null, status: "VACANT" },
+  });
+
+  if (previous.assignedEmployeeId) {
+    await prisma.allocationHistory.updateMany({
+      where: { systemId, employeeId: previous.assignedEmployeeId, unassignedAt: null },
+      data: { unassignedAt: new Date() },
+    });
+    await prisma.systemHistoryEntry.create({
+      data: { systemId, eventType: "Marked vacant", description: "Unallocated" },
+    });
+  }
+
+  await logActivity({
+    action: "unassigned",
+    module: MODULE,
+    recordId: systemId,
+    label: system.name,
+    description: `Marked ${system.name} (${system.assetId}) vacant`,
+  });
+
+  revalidatePath("/systems");
+  revalidatePath("/dashboard");
 }

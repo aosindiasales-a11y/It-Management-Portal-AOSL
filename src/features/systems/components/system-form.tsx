@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { Loader2, Plus } from "lucide-react";
 import type { Category, Employee, System, Tag } from "@prisma/client";
+import type { SafeCredential } from "@/features/systems/types";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,18 +17,34 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CategoryPicker } from "@/features/categories/components/category-picker";
 import { TagPicker } from "@/features/tags/components/tag-picker";
 import { CustomFieldsSection } from "@/features/custom-fields/components/custom-fields-section";
+import { EmployeePicker } from "@/features/systems/components/employee-picker";
+import { CredentialPicker } from "@/features/systems/components/credential-picker";
 import { useDebouncedCallback, useDraft } from "@/hooks/use-draft";
-import { systemSchema, SYSTEM_DEFAULTS, SYSTEM_STATUSES, type SystemFormValues } from "@/features/systems/schema";
+import { ASSET_TYPES, systemSchema, SYSTEM_DEFAULTS, SYSTEM_STATUSES, type SystemFormValues } from "@/features/systems/schema";
 import { normalizeCustomFields } from "@/lib/json";
 import { addSystemHistoryEntry, createSystem, updateSystem } from "@/features/systems/actions";
 import type { CustomFieldDef } from "@/lib/custom-fields/types";
 
 const STATUS_LABELS: Record<(typeof SYSTEM_STATUSES)[number], string> = {
-  ACTIVE: "Active",
-  IN_REPAIR: "In repair",
-  SPARE: "Spare",
+  ALLOCATED: "Allocated",
+  VACANT: "Vacant",
+  REPAIR: "Repair",
   RETIRED: "Retired",
 };
+
+const YES_NO_LABELS: Record<"unspecified" | "Yes" | "No", string> = {
+  unspecified: "Not specified",
+  Yes: "Yes",
+  No: "No",
+};
+
+function yesNoToSelectValue(value: "Yes" | "No" | null | undefined): "unspecified" | "Yes" | "No" {
+  return value ?? "unspecified";
+}
+
+function selectValueToYesNo(value: string): "Yes" | "No" | null {
+  return value === "unspecified" ? null : (value as "Yes" | "No");
+}
 
 interface SystemFormProps {
   system?: System | null;
@@ -35,6 +52,7 @@ interface SystemFormProps {
   categories: Category[];
   allTags: Tag[];
   employees: Employee[];
+  credentials: SafeCredential[];
   customFieldDefs: CustomFieldDef[];
   onSuccess: () => void;
 }
@@ -43,7 +61,7 @@ function toDateInput(date: Date | null | undefined): string {
   return date ? date.toISOString().slice(0, 10) : "";
 }
 
-export function SystemForm({ system, initialTagIds = [], categories, allTags, employees, customFieldDefs, onSuccess }: SystemFormProps) {
+export function SystemForm({ system, initialTagIds = [], categories, allTags, employees, credentials, customFieldDefs, onSuccess }: SystemFormProps) {
   const isEditing = !!system;
   const draft = useDraft<SystemFormValues>(`systems:${system?.id ?? "new"}`);
 
@@ -51,6 +69,7 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
     ? {
         assetId: system.assetId,
         name: system.name,
+        assetType: system.assetType ?? "",
         serialNumber: system.serialNumber ?? "",
         manufacturer: system.manufacturer ?? "",
         model: system.model ?? "",
@@ -62,10 +81,14 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
         purchaseDate: toDateInput(system.purchaseDate),
         warrantyExpiry: toDateInput(system.warrantyExpiry),
         status: system.status as SystemFormValues["status"],
+        keyboard: system.keyboard as SystemFormValues["keyboard"],
+        mousePad: system.mousePad as SystemFormValues["mousePad"],
+        charger: system.charger as SystemFormValues["charger"],
         categoryId: system.categoryId,
         location: system.location ?? "",
         notes: system.notes ?? "",
         assignedEmployeeId: system.assignedEmployeeId,
+        credentialId: system.credentialId,
         tagIds: initialTagIds,
         customFields: normalizeCustomFields(system.customFields),
       }
@@ -109,7 +132,12 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
   const tagIds = watch("tagIds");
   const customFields = watch("customFields");
   const status = watch("status");
-  const assignedEmployeeId = watch("assignedEmployeeId");
+  const assignedEmployeeId = watch("assignedEmployeeId") ?? null;
+  const credentialId = watch("credentialId") ?? null;
+  const assetType = watch("assetType") || "unspecified";
+  const keyboard = watch("keyboard");
+  const mousePad = watch("mousePad");
+  const charger = watch("charger");
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
@@ -120,9 +148,25 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
           {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="assetId">Asset ID</Label>
+          <Label htmlFor="assetId">Asset Code</Label>
           <Input id="assetId" {...register("assetId")} placeholder="AOSL/Asset/LAP/12" />
           {errors.assetId && <p className="text-xs text-destructive">{errors.assetId.message}</p>}
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="assetType">Asset type</Label>
+          <Select value={assetType} onValueChange={(v) => setValue("assetType", v === "unspecified" ? "" : v)}>
+            <SelectTrigger id="assetType">
+              <SelectValue placeholder="Not specified" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="unspecified">Not specified</SelectItem>
+              {ASSET_TYPES.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="serialNumber">Serial number</Label>
@@ -138,6 +182,51 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
               {SYSTEM_STATUSES.map((s) => (
                 <SelectItem key={s} value={s}>
                   {STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="keyboard">Keyboard</Label>
+          <Select value={yesNoToSelectValue(keyboard)} onValueChange={(v) => setValue("keyboard", selectValueToYesNo(v))}>
+            <SelectTrigger id="keyboard">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["unspecified", "Yes", "No"] as const).map((v) => (
+                <SelectItem key={v} value={v}>
+                  {YES_NO_LABELS[v]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="mousePad">Mouse / Mouse Pad</Label>
+          <Select value={yesNoToSelectValue(mousePad)} onValueChange={(v) => setValue("mousePad", selectValueToYesNo(v))}>
+            <SelectTrigger id="mousePad">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["unspecified", "Yes", "No"] as const).map((v) => (
+                <SelectItem key={v} value={v}>
+                  {YES_NO_LABELS[v]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="charger">Charger</Label>
+          <Select value={yesNoToSelectValue(charger)} onValueChange={(v) => setValue("charger", selectValueToYesNo(v))}>
+            <SelectTrigger id="charger">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(["unspecified", "Yes", "No"] as const).map((v) => (
+                <SelectItem key={v} value={v}>
+                  {YES_NO_LABELS[v]}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -184,23 +273,16 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
           <Input id="warrantyExpiry" type="date" {...register("warrantyExpiry")} />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="assignedEmployeeId">Assigned to</Label>
-          <Select
-            value={assignedEmployeeId ?? "none"}
-            onValueChange={(v) => setValue("assignedEmployeeId", v === "none" ? null : v)}
-          >
-            <SelectTrigger id="assignedEmployeeId">
-              <SelectValue placeholder="Unassigned" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Unassigned</SelectItem>
-              {employees.map((e) => (
-                <SelectItem key={e.id} value={e.id}>
-                  {e.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="assignedEmployeeId">Allocated person</Label>
+          <EmployeePicker
+            employees={employees}
+            value={assignedEmployeeId}
+            onChange={(v) => setValue("assignedEmployeeId", v)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Credential reference</Label>
+          <CredentialPicker credentials={credentials} value={credentialId} onChange={(v) => setValue("credentialId", v)} />
         </div>
       </div>
 

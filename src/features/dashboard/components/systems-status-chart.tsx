@@ -5,17 +5,17 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const STATUS_LABELS: Record<string, string> = {
-  ACTIVE: "Active",
-  IN_REPAIR: "In Repair",
-  SPARE: "Spare",
+  ALLOCATED: "Allocated",
+  VACANT: "Vacant",
+  REPAIR: "In Repair",
   RETIRED: "Retired",
 };
 
 // CSS custom properties resolve at paint time, so these colors follow light/dark mode automatically.
 const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "hsl(var(--success))",
-  IN_REPAIR: "hsl(var(--warning))",
-  SPARE: "hsl(var(--muted-foreground))",
+  ALLOCATED: "hsl(var(--success))",
+  VACANT: "hsl(var(--muted-foreground))",
+  REPAIR: "hsl(var(--warning))",
   RETIRED: "hsl(var(--destructive))",
 };
 

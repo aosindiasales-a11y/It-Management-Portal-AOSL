@@ -262,8 +262,9 @@ model Employee {
 
 model System {
   id             String    @id @default(cuid())
-  assetId        String    @unique
+  assetId        String    @unique // "Asset Code" in the UI — the primary human-facing identifier (e.g. AOSL/Asset/LAP/12)
   name           String
+  assetType      String? // free-text-ish ("Laptop" / "Desktop" / "Other") — not an enum since asset kinds vary; used for the Laptop/Desktop filter
   serialNumber   String?   @unique
   manufacturer   String?
   model          String?
@@ -274,17 +275,27 @@ model System {
   officeVersion  String?
   purchaseDate   DateTime?
   warrantyExpiry DateTime?
-  status         String    @default("ACTIVE")
-  categoryId     String?
-  location       String?
-  notes          String?
-  customFields   String?
-  archivedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  status         String    @default("VACANT") // ALLOCATED | VACANT | REPAIR | RETIRED — see SYSTEM_STATUSES in src/features/systems/schema.ts
+  // Tri-state accessory tracking: "Yes" | "No" | null (null = "not specified", distinct from "No" — never collapse the two).
+  keyboard     String?
+  mousePad     String?
+  charger      String?
+  categoryId   String?
+  location     String?
+  notes        String?
+  customFields String?
+  archivedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   assignedEmployeeId String?
   assignedEmployee   Employee? @relation(fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+
+  // Optional link to the existing Credential Vault — reuses its AES-256-GCM
+  // encryption rather than storing a second, insecure copy of a password on
+  // this model. Never store a plaintext/decrypted password field on System.
+  credentialId String?
+  credential   Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
 
   history           SystemHistoryEntry[]
   allocationHistory AllocationHistory[]
@@ -294,6 +305,7 @@ model System {
   @@index([assignedEmployeeId])
   @@index([categoryId])
   @@index([archivedAt])
+  @@index([credentialId])
   @@map("systems")
 }
 
@@ -343,6 +355,8 @@ model Credential {
   archivedAt        DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+
+  systems System[]
 
   @@index([categoryId])
   @@index([archivedAt])
