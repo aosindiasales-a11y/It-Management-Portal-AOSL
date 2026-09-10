@@ -100,6 +100,7 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
     watch,
     setValue,
     getValues,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<SystemFormValues>({ resolver: zodResolver(systemSchema), defaultValues });
 
@@ -114,14 +115,16 @@ export function SystemForm({ system, initialTagIds = [], categories, allTags, em
 
   async function onSubmit(values: SystemFormValues) {
     try {
-      if (isEditing) {
-        await updateSystem(system.id, values);
-        toast.success("System updated");
-      } else {
-        await createSystem(values);
-        toast.success("System registered");
-        draft.clearDraft();
+      const result = isEditing ? await updateSystem(system.id, values) : await createSystem(values);
+
+      if (!result.success) {
+        if (result.field) setError(result.field, { message: result.error });
+        toast.error(result.error);
+        return;
       }
+
+      toast.success(isEditing ? "System updated" : "System registered");
+      if (!isEditing) draft.clearDraft();
       onSuccess();
     } catch {
       toast.error("Couldn't save this system. Check the form and try again.");

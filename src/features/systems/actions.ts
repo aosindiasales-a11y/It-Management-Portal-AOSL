@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth/dal";
@@ -10,8 +11,27 @@ import { buildCustomFieldsSchema } from "@/lib/custom-fields/schema";
 import { setRecordTags, copyRecordTags, getRecordTagIds } from "@/features/tags/actions";
 import { systemSchema, type SystemFormValues } from "@/features/systems/schema";
 import { serializeJsonValue } from "@/lib/json";
+import type { System } from "@prisma/client";
 
 const MODULE = "systems" as const;
+
+/**
+ * Server actions return this instead of throwing for expected, user-facing
+ * failures (a duplicate Asset Code / Serial Number) — thrown Error messages
+ * from Server Actions aren't guaranteed to reach the client verbatim, but
+ * returned data always does. Genuinely unexpected errors still throw.
+ */
+export type SystemMutationResult =
+  | { success: true; system: System }
+  | { success: false; error: string; field?: "assetId" | "serialNumber" };
+
+function isUniqueConstraintError(error: unknown, target: string): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002" &&
+    !!(error.meta?.target as string[] | undefined)?.includes(target)
+  );
+}
 
 export async function getSystems(includeArchived = false) {
   await requireAdmin();
@@ -67,12 +87,23 @@ function toData(parsed: SystemFormValues, customFields: Record<string, unknown>)
   };
 }
 
-export async function createSystem(input: SystemFormValues) {
+export async function createSystem(input: SystemFormValues): Promise<SystemMutationResult> {
   await requireAdmin();
   const parsed = systemSchema.parse(input);
   const customFields = await validateCustomFields(parsed.customFields);
 
-  const system = await prisma.system.create({ data: toData(parsed, customFields) });
+  let system: System;
+  try {
+    system = await prisma.system.create({ data: toData(parsed, customFields) });
+  } catch (error) {
+    if (isUniqueConstraintError(error, "assetId")) {
+      return { success: false, field: "assetId", error: "Asset Code already exists. Please use a unique Asset Code." };
+    }
+    if (isUniqueConstraintError(error, "serialNumber")) {
+      return { success: false, field: "serialNumber", error: "A system with this Serial Number already exists." };
+    }
+    throw error;
+  }
 
   await prisma.systemHistoryEntry.create({
     data: { systemId: system.id, eventType: "Registered", description: "Asset added to the registry" },
@@ -89,16 +120,28 @@ export async function createSystem(input: SystemFormValues) {
 
   revalidatePath("/systems");
   revalidatePath("/dashboard");
-  return system;
+  return { success: true, system };
 }
 
-export async function updateSystem(id: string, input: SystemFormValues) {
+export async function updateSystem(id: string, input: SystemFormValues): Promise<SystemMutationResult> {
   await requireAdmin();
   const parsed = systemSchema.parse(input);
   const customFields = await validateCustomFields(parsed.customFields);
 
   const previous = await prisma.system.findUniqueOrThrow({ where: { id } });
-  const system = await prisma.system.update({ where: { id }, data: toData(parsed, customFields) });
+
+  let system: System;
+  try {
+    system = await prisma.system.update({ where: { id }, data: toData(parsed, customFields) });
+  } catch (error) {
+    if (isUniqueConstraintError(error, "assetId")) {
+      return { success: false, field: "assetId", error: "Asset Code already exists. Please use a unique Asset Code." };
+    }
+    if (isUniqueConstraintError(error, "serialNumber")) {
+      return { success: false, field: "serialNumber", error: "A system with this Serial Number already exists." };
+    }
+    throw error;
+  }
 
   if (previous.assignedEmployeeId !== system.assignedEmployeeId) {
     if (previous.assignedEmployeeId) {
@@ -126,7 +169,7 @@ export async function updateSystem(id: string, input: SystemFormValues) {
 
   revalidatePath("/systems");
   revalidatePath("/dashboard");
-  return system;
+  return { success: true, system };
 }
 
 export async function archiveSystem(id: string) {
